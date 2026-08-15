@@ -1,0 +1,77 @@
+@implements IDisposable
+@inject CountryContext Country
+
+@* Used only by pages that already carry their own interactive render mode - it has none of its
+   own. MudBlazor's app bar/drawer height coordination depends on them staying in one continuous
+   render tree, so this has to be the thing that wraps the page's own content (via ChildContent)
+   rather than a sibling planted next to it from a separately-rendered layout. *@
+
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="1" Color="Color.Primary">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start"
+                       OnClick="ToggleDrawer" />
+        <MudText Typo="Typo.h6" Class="ml-2">LTS</MudText>
+        <MudText Typo="Typo.caption" Class="ml-2 mt-1 d-none d-sm-flex">Logistics Tracking System</MudText>
+
+        <MudSpacer />
+
+        @if (Country.HasCountry)
+        {
+            @* The country is part of every route, so switching it is a navigation, not a mode toggle. *@
+            <MudButton StartIcon="@Icons.Material.Filled.Public" Color="Color.Inherit"
+                       Href="/" Class="mr-2">
+                @Country.Current!.Display
+            </MudButton>
+        }
+
+        <AuthorizeView>
+            <Authorized>
+                <MudMenu Icon="@Icons.Material.Filled.AccountCircle" Color="Color.Inherit" Dense="true"
+                         AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                    <MudMenuItem Disabled="true">
+                        <MudText Typo="Typo.body2">@context.User.Identity?.Name</MudText>
+                    </MudMenuItem>
+                    <MudDivider />
+                    <MudMenuItem Href="/change-password" Icon="@Icons.Material.Filled.Password">
+                        Change password
+                    </MudMenuItem>
+                    <MudMenuItem Href="/logout" ForceLoad="true" Icon="@Icons.Material.Filled.Logout">
+                        Sign out
+                    </MudMenuItem>
+                </MudMenu>
+            </Authorized>
+        </AuthorizeView>
+    </MudAppBar>
+
+    <MudDrawer @bind-Open="_drawerOpen" Elevation="1" ClipMode="DrawerClipMode.Always" Variant="DrawerVariant.Mini"
+               OpenMiniOnHover="true">
+        <NavMenu />
+    </MudDrawer>
+
+    <MudMainContent Class="pt-16 pa-4">
+        <MudContainer MaxWidth="MaxWidth.False">
+            @ChildContent
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
+@code {
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    private bool _drawerOpen = true;
+
+    protected override void OnInitialized() => Country.Changed += OnCountryChanged;
+
+    private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
+
+    // The nav links and the country button both depend on the selected country, which pages set
+    // from their route parameter after this component has already rendered once.
+    private void OnCountryChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Country.Changed -= OnCountryChanged;
+}

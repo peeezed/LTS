@@ -1,10 +1,12 @@
 @page "/{CountryCode}/on-the-way"
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
+@layout AppLayout
 @inherits CountryPageBase
 @inject IShipmentQueryService Query
 
 <PageTitle>Shipments on the way · LTS</PageTitle>
 
+<AppShell>
 @if (!Ready || _summary is null)
 {
     <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
@@ -107,6 +109,7 @@ else
         }
     </MudGrid>
 }
+</AppShell>
 
 @code {
     protected override string PageKey => PageKeys.ShipmentsOnTheWay;

@@ -1,10 +1,12 @@
 @page "/{CountryCode}/transfers"
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
+@layout AppLayout
 @inherits CountryPageBase
 @inject IShipmentQueryService Query
 
 <PageTitle>Transfers · LTS</PageTitle>
 
+<AppShell>
 @if (!Ready)
 {
     <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
@@ -67,6 +69,7 @@ else
         </NoRecordsContent>
     </MudDataGrid>
 }
+</AppShell>
 
 @code {
     protected override string PageKey => PageKeys.Transfers;

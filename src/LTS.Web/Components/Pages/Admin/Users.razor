@@ -1,5 +1,6 @@
 @page "/admin/users"
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
+@layout AppLayout
 @inject IUserAdminService Admin
 @inject IReferenceDataService Reference
 @inject PermissionState PermissionState
@@ -9,6 +10,7 @@
 
 <PageTitle>Users · LTS</PageTitle>
 
+<AppShell>
 @if (!_ready)
 {
     <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
@@ -128,6 +130,7 @@ else
         </PagerContent>
     </MudDataGrid>
 }
+</AppShell>
 
 @code {
     private IReadOnlyList<UserRow> _users = [];

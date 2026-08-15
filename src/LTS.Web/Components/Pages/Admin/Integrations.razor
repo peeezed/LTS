@@ -1,5 +1,6 @@
 @page "/{CountryCode}/admin/integrations"
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
+@layout AppLayout
 @inherits CountryPageBase
 @using LTS.Application.Integration
 @inject IIntegrationAdminService Admin
@@ -8,6 +9,7 @@
 
 <PageTitle>Integrations · LTS</PageTitle>
 
+<AppShell>
 @if (!Ready)
 {
     <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
@@ -223,6 +225,7 @@ else
         </MudTabPanel>
     </MudTabs>
 }
+</AppShell>
 
 @code {
     protected override string PageKey => PageKeys.AdminIntegrations;

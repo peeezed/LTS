@@ -1,5 +1,6 @@
 @page "/{CountryCode}/shipment-details"
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
+@layout AppLayout
 @inherits CountryPageBase
 @inject IShipmentQueryService Query
 @inject IMilestoneService Milestones
@@ -7,6 +8,7 @@
 
 <PageTitle>Shipment details · LTS</PageTitle>
 
+<AppShell>
 @if (!Ready)
 {
     <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
@@ -170,6 +172,7 @@ else
         }
     }
 }
+</AppShell>
 
 @code {
     protected override string PageKey => PageKeys.ShipmentDetails;

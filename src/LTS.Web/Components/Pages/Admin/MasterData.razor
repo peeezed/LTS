@@ -1,5 +1,6 @@
 @page "/{CountryCode}/admin/master-data"
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
+@layout AppLayout
 @inherits CountryPageBase
 @inject IReferenceDataService Reference
 @inject IMasterDataService Master
@@ -7,6 +8,7 @@
 
 <PageTitle>Master data · LTS</PageTitle>
 
+<AppShell>
 @if (!Ready)
 {
     <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
@@ -234,6 +236,7 @@ else
         </MudTabPanel>
     </MudTabs>
 }
+</AppShell>
 
 @code {
     protected override string PageKey => PageKeys.AdminMasterData;

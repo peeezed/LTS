@@ -1,0 +1,10 @@
+@inherits LayoutComponentBase
+
+@* Used by pages with their own interactive render mode. They supply the app bar/drawer/nav chrome
+   themselves by wrapping their content in AppShell, so this layout does nothing but pass Body
+   through - MainLayout's own chrome would otherwise render a second, non-interactive copy of it
+   around this one. It still needs its own MudThemeProvider though: that is what injects the CSS
+   variables the rest of MudBlazor's styling depends on. *@
+
+<MudThemeProvider Theme="LtsTheme.Default" />
+@Body

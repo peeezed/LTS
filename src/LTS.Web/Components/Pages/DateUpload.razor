@@ -1,5 +1,6 @@
 @page "/{CountryCode}/date-upload"
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
+@layout AppLayout
 @inherits CountryPageBase
 @using LTS.Application.Excel
 @inject IDateImportService Import
@@ -8,6 +9,7 @@
 
 <PageTitle>Date upload · LTS</PageTitle>
 
+<AppShell>
 @if (!Ready)
 {
     <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
@@ -154,6 +156,7 @@ else
         }
     }
 }
+</AppShell>
 
 @code {
     protected override string PageKey => PageKeys.DateUpload;

@@ -1,5 +1,6 @@
 @page "/{CountryCode}/admin/kpi"
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
+@layout AppLayout
 @inherits CountryPageBase
 @using LTS.Application.Kpi
 @using LTS.Domain.Kpi
@@ -11,6 +12,7 @@
 
 <PageTitle>KPI targets · LTS</PageTitle>
 
+<AppShell>
 @if (!Ready)
 {
     <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
@@ -147,6 +149,7 @@ else
         </PagerContent>
     </MudDataGrid>
 }
+</AppShell>
 
 @code {
     protected override string PageKey => PageKeys.AdminKpi;

@@ -1,5 +1,6 @@
 @page "/admin/countries"
 @rendermode @(new InteractiveServerRenderMode(prerender: false))
+@layout AppLayout
 @inject IReferenceDataService Reference
 @inject IMasterDataService MasterData
 @inject PermissionState PermissionState
@@ -8,6 +9,7 @@
 
 <PageTitle>Countries · LTS</PageTitle>
 
+<AppShell>
 @if (!_ready)
 {
     <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
@@ -90,6 +92,7 @@ else
         </MudPaper>
     }
 }
+</AppShell>
 
 @code {
     private IReadOnlyList<CountryDto> _countries = [];
