@@ -1,0 +1,88 @@
+@implements IDisposable
+@inject CountryContext Country
+@inject PermissionState Permissions
+
+<MudNavMenu>
+    @if (Country.HasCountry && _permissions is not null)
+    {
+        var code = Country.CountryCode;
+        var id = Country.CountryId;
+
+        @if (_permissions.CanView(PageKeys.Shipments, id))
+        {
+            <MudNavLink Href="@($"/{code}/shipments")" Icon="@Icons.Material.Filled.LocalShipping">Shipments</MudNavLink>
+        }
+        @if (_permissions.CanView(PageKeys.Transfers, id))
+        {
+            <MudNavLink Href="@($"/{code}/transfers")" Icon="@Icons.Material.Filled.CallSplit">Transfers</MudNavLink>
+        }
+        @if (_permissions.CanView(PageKeys.ShipmentsOnTheWay, id))
+        {
+            <MudNavLink Href="@($"/{code}/on-the-way")" Icon="@Icons.Material.Filled.Dashboard">On The Way</MudNavLink>
+        }
+        @if (_permissions.CanView(PageKeys.ShipmentDetails, id))
+        {
+            <MudNavLink Href="@($"/{code}/shipment-details")" Icon="@Icons.Material.Filled.EditCalendar">Shipment Details</MudNavLink>
+        }
+        @if (_permissions.CanView(PageKeys.DateUpload, id))
+        {
+            <MudNavLink Href="@($"/{code}/date-upload")" Icon="@Icons.Material.Filled.UploadFile">Date Upload</MudNavLink>
+        }
+
+        @if (HasAnyAdminPage(id))
+        {
+            <MudDivider Class="my-2" />
+            <MudNavGroup Title="Administration" Icon="@Icons.Material.Filled.Settings" @bind-Expanded="_adminExpanded">
+                @if (_permissions.CanView(PageKeys.AdminUsers, null))
+                {
+                    <MudNavLink Href="/admin/users" Icon="@Icons.Material.Filled.People">Users</MudNavLink>
+                }
+                @if (_permissions.CanView(PageKeys.AdminCountries, null))
+                {
+                    <MudNavLink Href="/admin/countries" Icon="@Icons.Material.Filled.Public">Countries</MudNavLink>
+                }
+                @if (_permissions.CanView(PageKeys.AdminMasterData, id))
+                {
+                    <MudNavLink Href="@($"/{code}/admin/master-data")" Icon="@Icons.Material.Filled.ListAlt">Master Data</MudNavLink>
+                }
+                @if (_permissions.CanView(PageKeys.AdminKpi, id))
+                {
+                    <MudNavLink Href="@($"/{code}/admin/kpi")" Icon="@Icons.Material.Filled.Speed">KPI Targets</MudNavLink>
+                }
+                @if (_permissions.CanView(PageKeys.AdminIntegrations, id))
+                {
+                    <MudNavLink Href="@($"/{code}/admin/integrations")" Icon="@Icons.Material.Filled.Sync">Integrations</MudNavLink>
+                }
+                @if (_permissions.CanView(PageKeys.AdminAuditLog, id))
+                {
+                    <MudNavLink Href="@($"/{code}/admin/audit-log")" Icon="@Icons.Material.Filled.History">Audit Log</MudNavLink>
+                }
+            </MudNavGroup>
+        }
+    }
+    else
+    {
+        <MudNavLink Href="/" Icon="@Icons.Material.Filled.Public">Choose country</MudNavLink>
+    }
+</MudNavMenu>
+
+@code {
+    private UserPermissions? _permissions;
+    private bool _adminExpanded;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Country.Changed += OnCountryChanged;
+        _permissions = await Permissions.GetAsync();
+    }
+
+    private bool HasAnyAdminPage(int countryId) =>
+        _permissions is not null &&
+        PageCatalog.All
+            .Where(p => p.Group == PageCatalog.AdminGroup)
+            .Any(p => _permissions.CanView(p.Key, p.IsCountryScoped ? countryId : null));
+
+    private void OnCountryChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Country.Changed -= OnCountryChanged;
+}

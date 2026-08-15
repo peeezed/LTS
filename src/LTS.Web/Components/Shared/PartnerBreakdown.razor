@@ -1,0 +1,49 @@
+@* In-flight volume per partner, with the share of it that is running late — the view that
+   turns "we have a problem" into "we have a problem with this carrier". *@
+
+<MudPaper Elevation="1" Class="pa-4" Style="height: 100%;">
+    <MudText Typo="Typo.h6" Class="mb-3">@Title</MudText>
+
+    @if (Buckets.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">Nothing in transit.</MudText>
+    }
+    else
+    {
+        <MudSimpleTable Dense="true" Elevation="0" Striped="true">
+            <thead>
+                <tr>
+                    <th>Company</th>
+                    <th class="text-right">In transit</th>
+                    <th class="text-right">Overdue</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var bucket in Buckets)
+                {
+                    <tr>
+                        <td>@bucket.Name</td>
+                        <td class="text-right">@bucket.Count.ToString("N0")</td>
+                        <td class="text-right">
+                            @if (bucket.OverdueCount > 0)
+                            {
+                                <MudText Typo="Typo.body2" Color="Color.Error" Inline="true">
+                                    @bucket.OverdueCount (@bucket.OverdueShare.ToString("P0"))
+                                </MudText>
+                            }
+                            else
+                            {
+                                <span>—</span>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+    }
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public IReadOnlyList<PartnerBucket> Buckets { get; set; } = [];
+}

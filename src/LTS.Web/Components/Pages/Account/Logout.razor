@@ -1,0 +1,27 @@
+@page "/logout"
+@layout EmptyLayout
+@* Anonymous on purpose: signing out has to work even after the session has already expired,
+   which would otherwise bounce the user to the login page and leave the cookie in place. *@
+@attribute [AllowAnonymous]
+@using LTS.Domain.Entities
+@using Microsoft.AspNetCore.Identity
+@inject SignInManager<AppUser> SignInManager
+@inject NavigationManager Navigation
+
+@* Static rendering again: clearing the cookie needs the HTTP response, not a circuit. *@
+
+<PageTitle>Signing out · LTS</PageTitle>
+
+<div class="login-shell">
+    <MudPaper Elevation="0" Class="pa-8">
+        <MudText Typo="Typo.body1">Signing out...</MudText>
+    </MudPaper>
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        await SignInManager.SignOutAsync();
+        Navigation.NavigateTo("/login", forceLoad: true);
+    }
+}

@@ -1,0 +1,56 @@
+# Build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+publish/
+
+# Visual Studio / Rider / VS Code
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.DotSettings.user
+
+# Local configuration and secrets. appsettings.json holds the committed defaults; anything
+# environment-specific — real connection strings, integration credentials — belongs in
+# appsettings.Local.json or user secrets and must never be committed.
+appsettings.Local.json
+appsettings.*.local.json
+secrets.json
+
+# Databases created by a local run
+*.mdf
+*.ldf
+*.ndf
+*.db
+*.db-shm
+*.db-wal
+
+# Test and coverage output
+TestResults/
+coverage/
+*.coverage
+*.trx
+
+# Logs
+logs/
+*.log
+
+# NuGet
+*.nupkg
+packages/
+.nuget/
+
+# Claude Code: settings.json is shared project config, settings.local.json is per-developer
+.claude/settings.local.json
+
+# OS noise
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store

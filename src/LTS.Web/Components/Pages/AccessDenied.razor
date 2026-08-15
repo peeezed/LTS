@@ -1,0 +1,16 @@
+@page "/access-denied"
+
+<PageTitle>Access denied · LTS</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="mt-8">
+    <MudPaper Elevation="2" Class="pa-8">
+        <MudStack AlignItems="AlignItems.Center" Spacing="3">
+            <MudIcon Icon="@Icons.Material.Filled.Lock" Color="Color.Warning" Size="Size.Large" />
+            <MudText Typo="Typo.h5">You do not have access to this page</MudText>
+            <MudText Typo="Typo.body2" Align="Align.Center" Class="mud-text-secondary">
+                Page access is granted per country. If you need this page, ask an administrator to add it to your account.
+            </MudText>
+            <MudButton Href="/" Variant="Variant.Filled" Color="Color.Primary">Back to country selection</MudButton>
+        </MudStack>
+    </MudPaper>
+</MudContainer>

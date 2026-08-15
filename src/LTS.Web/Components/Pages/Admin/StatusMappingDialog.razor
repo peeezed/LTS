@@ -1,0 +1,100 @@
+@using LTS.Application.Integration
+
+<MudDialog>
+    <DialogContent>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
+            Decide what one of this source's status codes means in LTS. The source keeps its own
+            vocabulary; only the translation lives here.
+        </MudText>
+
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6">
+                <MudTextField T="string" @bind-Value="_rawCode" Label="Source code" Required="true"
+                              Variant="Variant.Outlined" Margin="Margin.Dense"
+                              HelperText="Exactly as the source system sends it" />
+            </MudItem>
+
+            <MudItem xs="12" sm="6">
+                <MudTextField T="string" @bind-Value="_rawDescription" Label="What it means in that system"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+
+            <MudItem xs="12">
+                <MudSwitch T="bool" @bind-Value="_isIgnored" Color="Color.Primary"
+                           Label="Ignore this code" />
+                <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                    Recognised but deliberately dropped, so it stays out of the unmapped-code warnings.
+                </MudText>
+            </MudItem>
+
+            @if (!_isIgnored)
+            {
+                <MudItem xs="12">
+                    <MudSelect T="MilestoneType?" @bind-Value="_milestoneType" Label="LTS status"
+                               Variant="Variant.Outlined" Margin="Margin.Dense" Required="true">
+                        @foreach (var milestone in MilestoneCatalog.All)
+                        {
+                            <MudSelectItem T="MilestoneType?" Value="@milestone.Type">
+                                @milestone.DisplayName
+                            </MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+            }
+
+            <MudItem xs="12">
+                <MudSwitch T="bool" @bind-Value="_isActive" Label="Active" Color="Color.Primary" />
+            </MudItem>
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save" Disabled="@(!IsValid)">
+            Save
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance Dialog { get; set; } = default!;
+
+    [Parameter] public StatusMappingRow? Row { get; set; }
+    [Parameter] public int IntegrationSourceId { get; set; }
+
+    private string _rawCode = string.Empty;
+    private string? _rawDescription;
+    private MilestoneType? _milestoneType;
+    private bool _isIgnored;
+    private bool _isActive = true;
+
+    private bool IsValid => _rawCode.Trim().Length > 0 && (_isIgnored || _milestoneType is not null);
+
+    protected override void OnInitialized()
+    {
+        if (Row is null)
+        {
+            return;
+        }
+
+        _rawCode = Row.RawCode;
+        _rawDescription = Row.RawDescription;
+        _milestoneType = Row.MilestoneType;
+        _isIgnored = Row.IsIgnored;
+        _isActive = Row.IsActive;
+    }
+
+    private void Save() => Dialog.Close(DialogResult.Ok(new StatusMappingInput
+    {
+        // Id 0 is the placeholder used when mapping a code straight from the unmapped list.
+        Id = Row is null or { Id: 0 } ? null : Row.Id,
+        IntegrationSourceId = IntegrationSourceId,
+        RawCode = _rawCode.Trim(),
+        RawDescription = _rawDescription,
+        MilestoneType = _isIgnored ? null : _milestoneType,
+        IsIgnored = _isIgnored,
+        IsActive = _isActive
+    }));
+
+    private void Cancel() => Dialog.Cancel();
+}

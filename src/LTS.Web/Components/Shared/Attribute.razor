@@ -1,0 +1,11 @@
+@* One labelled shipment attribute in the details header. *@
+
+<MudItem xs="6" sm="4" md="3">
+    <MudText Typo="Typo.caption" Class="mud-text-secondary">@Label</MudText>
+    <MudText Typo="Typo.body2">@(string.IsNullOrWhiteSpace(Value) ? "—" : Value)</MudText>
+</MudItem>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+    [Parameter] public string? Value { get; set; }
+}

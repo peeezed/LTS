@@ -1,0 +1,351 @@
+@using System.ComponentModel.DataAnnotations
+
+<MudDialog>
+    <DialogContent>
+        <MudGrid Spacing="3">
+            <MudItem xs="12" md="6">
+                <MudTextField T="string" @bind-Value="_fullName" Label="Full name" Required="true"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+
+            <MudItem xs="12" md="6">
+                <MudTextField T="string" @bind-Value="_email" Label="Email" Required="true"
+                              Variant="Variant.Outlined" Margin="Margin.Dense"
+                              Validation="@(new EmailAddressAttribute { ErrorMessage = "Enter a valid email address." })"
+                              HelperText="Used as the sign-in name" />
+            </MudItem>
+
+            <MudItem xs="12" md="6">
+                <MudSelect T="UserType" Value="_userType" ValueChanged="OnUserTypeChanged" Label="Account type"
+                           Variant="Variant.Outlined" Margin="Margin.Dense">
+                    @foreach (var type in Enum.GetValues<UserType>())
+                    {
+                        <MudSelectItem T="UserType" Value="@type">@type.ToDisplay()</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+
+            @if (RequiresPartner)
+            {
+                <MudItem xs="12" md="6">
+                    <MudSelect T="int?" @bind-Value="_partnerId" Label="Company" Required="true"
+                               Variant="Variant.Outlined" Margin="Margin.Dense"
+                               HelperText="This is what limits the account to its own shipments">
+                        @foreach (var partner in RelevantPartners)
+                        {
+                            <MudSelectItem T="int?" Value="@partner.Id">@partner.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudItem>
+            }
+
+            <MudItem xs="12">
+                <MudSwitch T="bool" @bind-Value="_isActive" Label="Account is active" Color="Color.Primary" />
+            </MudItem>
+
+            @if (_userType == UserType.Admin)
+            {
+                <MudItem xs="12">
+                    <MudAlert Severity="Severity.Info" Dense="true">
+                        Administrators have every country and every page. There is nothing further to grant.
+                    </MudAlert>
+                </MudItem>
+            }
+            else
+            {
+                <MudItem xs="12">
+                    <MudDivider Class="mb-3" />
+                    <MudText Typo="Typo.subtitle1" Class="mb-1">Countries</MudText>
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
+                        The countries this account may enter. Page rights are granted per country below.
+                    </MudText>
+
+                    <MudStack Row="true" Spacing="3" Wrap="Wrap.Wrap">
+                        @foreach (var country in Countries)
+                        {
+                            <MudCheckBox T="bool" Value="@_countryIds.Contains(country.Id)" Dense="true"
+                                         ValueChanged="@(value => ToggleCountry(country.Id, value))"
+                                         Label="@country.Display" Color="Color.Primary" />
+                        }
+                    </MudStack>
+                </MudItem>
+
+                @if (_countryIds.Count > 0)
+                {
+                    <MudItem xs="12">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-2">
+                            <MudText Typo="Typo.subtitle1">Pages</MudText>
+                            <MudSpacer />
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined"
+                                       StartIcon="@Icons.Material.Filled.AutoFixHigh" OnClick="ApplyTemplate">
+                                Apply default for @_userType.ToDisplay()
+                            </MudButton>
+                        </MudStack>
+
+                        <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pt-3">
+                            @foreach (var countryId in _countryIds)
+                            {
+                                var country = Countries.FirstOrDefault(c => c.Id == countryId);
+
+                                <MudTabPanel Text="@(country?.Display ?? countryId.ToString())">
+                                    <MudSimpleTable Dense="true" Elevation="0" Striped="true">
+                                        <thead>
+                                            <tr>
+                                                <th>Page</th>
+                                                <th style="width: 90px;">View</th>
+                                                <th style="width: 90px;">Edit</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var definition in PageCatalog.All.Where(p => p.IsCountryScoped))
+                                            {
+                                                <tr>
+                                                    <td>
+                                                        @definition.DisplayName
+                                                        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">
+                                                            @definition.Group
+                                                        </MudText>
+                                                    </td>
+                                                    <td>
+                                                        <MudCheckBox T="bool" Dense="true" Color="Color.Primary"
+                                                                     Value="@Get(countryId, definition.Key).CanView"
+                                                                     ValueChanged="@(v => SetView(countryId, definition.Key, v))" />
+                                                    </td>
+                                                    <td>
+                                                        @if (definition.SupportsEdit)
+                                                        {
+                                                            <MudCheckBox T="bool" Dense="true" Color="Color.Primary"
+                                                                         Value="@Get(countryId, definition.Key).CanEdit"
+                                                                         ValueChanged="@(v => SetEdit(countryId, definition.Key, v))" />
+                                                        }
+                                                        else
+                                                        {
+                                                            <MudText Typo="Typo.caption" Class="mud-text-secondary">—</MudText>
+                                                        }
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </MudSimpleTable>
+                                </MudTabPanel>
+                            }
+
+                            <MudTabPanel Text="All countries">
+                                <MudText Typo="Typo.body2" Class="mud-text-secondary mb-2">
+                                    These pages administer LTS as a whole, so they are granted once rather than per country.
+                                </MudText>
+                                <MudSimpleTable Dense="true" Elevation="0" Striped="true">
+                                    <thead>
+                                        <tr>
+                                            <th>Page</th>
+                                            <th style="width: 90px;">View</th>
+                                            <th style="width: 90px;">Edit</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var definition in PageCatalog.All.Where(p => !p.IsCountryScoped))
+                                        {
+                                            <tr>
+                                                <td>@definition.DisplayName</td>
+                                                <td>
+                                                    <MudCheckBox T="bool" Dense="true" Color="Color.Primary"
+                                                                 Value="@Get(null, definition.Key).CanView"
+                                                                 ValueChanged="@(v => SetView(null, definition.Key, v))" />
+                                                </td>
+                                                <td>
+                                                    <MudCheckBox T="bool" Dense="true" Color="Color.Primary"
+                                                                 Value="@Get(null, definition.Key).CanEdit"
+                                                                 ValueChanged="@(v => SetEdit(null, definition.Key, v))" />
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </MudSimpleTable>
+                            </MudTabPanel>
+                        </MudTabs>
+                    </MudItem>
+                }
+            }
+        </MudGrid>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="Save" Disabled="@(!IsValid)">
+            Save
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance Dialog { get; set; } = default!;
+
+    [Parameter] public UserInput? Existing { get; set; }
+    [Parameter] public IReadOnlyList<CountryDto> Countries { get; set; } = [];
+    [Parameter] public IReadOnlyList<PartnerDto> Partners { get; set; } = [];
+
+    private string _fullName = string.Empty;
+    private string _email = string.Empty;
+    private UserType _userType = UserType.LogisticsDepartment;
+    private int? _partnerId;
+    private bool _isActive = true;
+
+    private readonly List<int> _countryIds = [];
+    private readonly Dictionary<string, PagePermission> _grants = [];
+
+    private bool RequiresPartner => _userType is UserType.Broker or UserType.LogisticsCompany;
+
+    private IEnumerable<PartnerDto> RelevantPartners => _userType switch
+    {
+        UserType.Broker => Partners.Where(p => p.Type == PartnerType.Broker),
+        UserType.LogisticsCompany => Partners.Where(p => p.Type == PartnerType.LogisticsCompany),
+        _ => []
+    };
+
+    private bool IsValid =>
+        _fullName.Trim().Length > 0 &&
+        _email.Trim().Length > 0 &&
+        (!RequiresPartner || _partnerId is not null);
+
+    protected override void OnInitialized()
+    {
+        if (Existing is null)
+        {
+            ApplyTemplate();
+            return;
+        }
+
+        _fullName = Existing.FullName;
+        _email = Existing.Email;
+        _userType = Existing.UserType;
+        _partnerId = Existing.PartnerId;
+        _isActive = Existing.IsActive;
+        _countryIds.AddRange(Existing.CountryIds);
+
+        foreach (var grant in Existing.Permissions)
+        {
+            _grants[UserPermissions.Key(grant.PageKey, grant.CountryId)] = new PagePermission(grant.CanView, grant.CanEdit);
+        }
+    }
+
+    private void OnUserTypeChanged(UserType type)
+    {
+        _userType = type;
+
+        // A partner from the previous type would be the wrong kind of company.
+        if (!RequiresPartner)
+        {
+            _partnerId = null;
+        }
+
+        ApplyTemplate();
+    }
+
+    /// <summary>Fills in the default grants for the chosen account type, for every selected country.</summary>
+    private void ApplyTemplate()
+    {
+        _grants.Clear();
+
+        foreach (var grant in PermissionTemplates.For(_userType))
+        {
+            if (PageCatalog.IsCountryScoped(grant.PageKey))
+            {
+                foreach (var countryId in _countryIds)
+                {
+                    _grants[UserPermissions.Key(grant.PageKey, countryId)] = new PagePermission(grant.CanView, grant.CanEdit);
+                }
+            }
+            else
+            {
+                _grants[UserPermissions.Key(grant.PageKey, null)] = new PagePermission(grant.CanView, grant.CanEdit);
+            }
+        }
+    }
+
+    private void ToggleCountry(int countryId, bool selected)
+    {
+        if (selected)
+        {
+            if (_countryIds.Contains(countryId))
+            {
+                return;
+            }
+
+            _countryIds.Add(countryId);
+            _countryIds.Sort();
+
+            // A newly added country starts from the type's defaults rather than with nothing,
+            // which is almost always what the administrator wants.
+            foreach (var grant in PermissionTemplates.For(_userType).Where(g => PageCatalog.IsCountryScoped(g.PageKey)))
+            {
+                _grants.TryAdd(UserPermissions.Key(grant.PageKey, countryId), new PagePermission(grant.CanView, grant.CanEdit));
+            }
+
+            return;
+        }
+
+        _countryIds.Remove(countryId);
+
+        foreach (var key in _grants.Keys.Where(k => k.StartsWith($"{countryId}:", StringComparison.Ordinal)).ToList())
+        {
+            _grants.Remove(key);
+        }
+    }
+
+    private PagePermission Get(int? countryId, string pageKey) =>
+        _grants.GetValueOrDefault(UserPermissions.Key(pageKey, countryId), PagePermission.None);
+
+    private void SetView(int? countryId, string pageKey, bool canView)
+    {
+        var current = Get(countryId, pageKey);
+
+        // Losing view rights takes edit rights with it: editing a page you cannot open is not
+        // a state worth storing.
+        _grants[UserPermissions.Key(pageKey, countryId)] =
+            new PagePermission(canView, canView && current.CanEdit);
+    }
+
+    private void SetEdit(int? countryId, string pageKey, bool canEdit)
+    {
+        var current = Get(countryId, pageKey);
+        _grants[UserPermissions.Key(pageKey, countryId)] =
+            new PagePermission(current.CanView || canEdit, canEdit);
+    }
+
+    private void Save()
+    {
+        var permissions = new List<PagePermissionInput>();
+
+        foreach (var (key, permission) in _grants)
+        {
+            if (!permission.CanView && !permission.CanEdit)
+            {
+                continue;
+            }
+
+            var separator = key.IndexOf(':');
+            var countryPart = key[..separator];
+            var pageKey = key[(separator + 1)..];
+
+            permissions.Add(new PagePermissionInput(
+                countryPart == "*" ? null : int.Parse(countryPart),
+                pageKey,
+                permission.CanView,
+                permission.CanEdit));
+        }
+
+        Dialog.Close(DialogResult.Ok(new UserInput
+        {
+            Id = Existing?.Id,
+            Email = _email.Trim(),
+            FullName = _fullName.Trim(),
+            UserType = _userType,
+            PartnerId = _partnerId,
+            IsActive = _isActive,
+            CountryIds = _countryIds,
+            Permissions = permissions
+        }));
+    }
+
+    private void Cancel() => Dialog.Cancel();
+}

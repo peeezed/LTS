@@ -1,0 +1,66 @@
+@page "/"
+@inject IReferenceDataService Reference
+@inject PermissionState Permissions
+@inject CountryContext Country
+@inject NavigationManager Navigation
+
+@* Rendered statically rather than interactively: picking a country is a navigation, not an
+   interaction, and static rendering means an unauthenticated visitor is redirected to the sign-in
+   page by the server instead of briefly seeing an empty chooser. *@
+
+<PageTitle>Choose country · LTS</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="mt-8">
+    <MudText Typo="Typo.h4" Class="mb-1">Choose a country</MudText>
+    <MudText Typo="Typo.body2" Class="mb-6 mud-text-secondary">
+        Everything in LTS — shipments, transfers, KPI targets and integrations — is scoped to one country.
+    </MudText>
+
+    @if (_countries.Count == 0)
+    {
+        <MudAlert Severity="Severity.Warning">
+            No country has been assigned to your account yet. Ask an administrator to grant you access.
+        </MudAlert>
+    }
+    else
+    {
+        <MudGrid>
+            @foreach (var country in _countries)
+            {
+                <MudItem xs="12" sm="6">
+                    <a href="@($"/{country.Code}/shipments")" class="country-link">
+                        <MudPaper Elevation="2" Class="pa-4 country-card">
+                            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3">
+                                <MudAvatar Color="Color.Primary" Size="Size.Large">@country.Code</MudAvatar>
+                                <div>
+                                    <MudText Typo="Typo.h6">@country.Name</MudText>
+                                    <MudText Typo="Typo.body2" Class="mud-text-secondary">Enter @country.Code</MudText>
+                                </div>
+                            </MudStack>
+                        </MudPaper>
+                    </a>
+                </MudItem>
+            }
+        </MudGrid>
+    }
+</MudContainer>
+
+@code {
+    private IReadOnlyList<CountryDto> _countries = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Leaving the country behind makes the app bar and navigation collapse back to
+        // "choose country", which is the honest state while the user is on this page.
+        Country.Clear();
+
+        var permissions = await Permissions.GetAsync();
+        _countries = await Reference.GetAccessibleCountriesAsync(permissions);
+
+        // One country is not a choice, so skip the ceremony.
+        if (_countries.Count == 1)
+        {
+            Navigation.NavigateTo($"/{_countries[0].Code}/shipments");
+        }
+    }
+}

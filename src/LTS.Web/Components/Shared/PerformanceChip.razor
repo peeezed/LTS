@@ -1,0 +1,37 @@
+@using LTS.Domain.Enums
+
+<MudTooltip Text="@Tooltip">
+    <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="@Colour" Class="ma-0">
+        @Performance.ToDisplay()
+    </MudChip>
+</MudTooltip>
+
+@code {
+    [Parameter, EditorRequired]
+    public PerformanceStatus Performance { get; set; }
+
+    /// <summary>
+    /// Red means the target is already missed, amber means it is about to be. Everything a
+    /// tracking desk acts on is one of those two.
+    /// </summary>
+    private Color Colour => Performance switch
+    {
+        PerformanceStatus.OnTime => Color.Success,
+        PerformanceStatus.OnTrack => Color.Info,
+        PerformanceStatus.AtRisk => Color.Warning,
+        PerformanceStatus.Late or PerformanceStatus.Overdue => Color.Error,
+        _ => Color.Default
+    };
+
+    private string Tooltip => Performance switch
+    {
+        PerformanceStatus.NotStarted => "The first tracked step has not begun yet.",
+        PerformanceStatus.NoTarget => "No KPI target covers this shipment for the steps it has reached.",
+        PerformanceStatus.OnTrack => "In progress and inside its KPI target.",
+        PerformanceStatus.AtRisk => "In progress and close to its KPI target.",
+        PerformanceStatus.Overdue => "In progress and already past its KPI target.",
+        PerformanceStatus.OnTime => "Every completed step met its KPI target.",
+        PerformanceStatus.Late => "A completed step exceeded its KPI target.",
+        _ => string.Empty
+    };
+}

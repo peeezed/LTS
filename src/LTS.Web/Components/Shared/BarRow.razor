@@ -1,0 +1,22 @@
+@* A labelled horizontal bar. The dashboard's comparisons are all "which bucket is biggest",
+   which a bar answers at a glance and a number does not. *@
+
+<div class="mb-2">
+    <MudStack Row="true" Justify="Justify.SpaceBetween" Spacing="1">
+        <MudText Typo="Typo.body2">@Label</MudText>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">@Count.ToString("N0")</MudText>
+    </MudStack>
+    <MudProgressLinear Color="@Colour" Value="@Percentage" Size="Size.Small" Rounded="true" />
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public int Count { get; set; }
+
+    /// <summary>Largest count in the group, so bars are comparable within one panel.</summary>
+    [Parameter] public int Max { get; set; } = 1;
+
+    [Parameter] public Color Colour { get; set; } = Color.Primary;
+
+    private double Percentage => Max <= 0 ? 0 : Math.Round((double)Count / Max * 100, 1);
+}

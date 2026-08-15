@@ -1,0 +1,137 @@
+@page "/{CountryCode}/on-the-way"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inherits CountryPageBase
+@inject IShipmentQueryService Query
+
+<PageTitle>Shipments on the way · LTS</PageTitle>
+
+@if (!Ready || _summary is null)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+}
+else
+{
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-4">
+        <div>
+            <MudText Typo="Typo.h5">Shipments On The Way</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                Everything that has not reached its store yet, in @Country.Current!.Name
+            </MudText>
+        </div>
+        <MudSpacer />
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync">
+            Refresh
+        </MudButton>
+    </MudStack>
+
+    <MudGrid Spacing="3" Class="mb-2">
+        <SummaryTile Title="Shipments in transit" Value="@_summary.ShipmentCount.ToString("N0")"
+                     Icon="@Icons.Material.Filled.LocalShipping" Colour="Color.Primary" />
+        <SummaryTile Title="Transfers" Value="@_summary.TransferCount.ToString("N0")"
+                     Icon="@Icons.Material.Filled.CallSplit" Colour="Color.Secondary" />
+        <SummaryTile Title="Overdue" Value="@_summary.OverdueCount.ToString("N0")"
+                     Icon="@Icons.Material.Filled.ErrorOutline" Colour="Color.Error"
+                     Subtitle="Past their KPI target" />
+        <SummaryTile Title="At risk" Value="@_summary.AtRiskCount.ToString("N0")"
+                     Icon="@Icons.Material.Filled.WarningAmber" Colour="Color.Warning"
+                     Subtitle="Close to their KPI target" />
+    </MudGrid>
+
+    <MudGrid Spacing="3">
+        <MudItem xs="12" md="6">
+            <MudPaper Elevation="1" Class="pa-4" Style="height: 100%;">
+                <MudText Typo="Typo.h6" Class="mb-3">Where they are</MudText>
+                @if (_summary.ByStatus.Count == 0)
+                {
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">Nothing in transit.</MudText>
+                }
+                else
+                {
+                    @foreach (var bucket in _summary.ByStatus)
+                    {
+                        <BarRow Label="@bucket.Label" Count="bucket.Count" Max="MaxStatusCount" Colour="Color.Primary" />
+                    }
+                }
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" md="6">
+            <MudPaper Elevation="1" Class="pa-4" Style="height: 100%;">
+                <MudText Typo="Typo.h6" Class="mb-3">How they are performing</MudText>
+                @foreach (var bucket in _summary.ByPerformance)
+                {
+                    <BarRow Label="@bucket.Label" Count="bucket.Count" Max="MaxPerformanceCount"
+                            Colour="@PerformanceColour(bucket.Key)" />
+                }
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" md="6">
+            <MudPaper Elevation="1" Class="pa-4" Style="height: 100%;">
+                <MudText Typo="Typo.h6" Class="mb-1">How long they have been travelling</MudText>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-3">
+                    Days since loading, for shipments that have a loading date
+                </MudText>
+                @foreach (var bucket in _summary.Aging)
+                {
+                    <BarRow Label="@bucket.Label" Count="bucket.Count" Max="MaxAgingCount" Colour="Color.Info" />
+                }
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" md="6">
+            <MudPaper Elevation="1" Class="pa-4" Style="height: 100%;">
+                <MudText Typo="Typo.h6" Class="mb-3">Volume and total goods</MudText>
+                <MudSimpleTable Dense="true" Elevation="0" Striped="true">
+                    <tbody>
+                        <tr><td>Boxes in transit</td><td class="text-right">@_summary.TotalBoxes.ToString("N0")</td></tr>
+                        <tr><td>Items in transit</td><td class="text-right">@_summary.TotalItems.ToString("N0")</td></tr>
+                        <tr>
+                            <td>Share running late</td>
+                            <td class="text-right">@LatePercentage.ToString("P0")</td>
+                        </tr>
+                    </tbody>
+                </MudSimpleTable>
+            </MudPaper>
+        </MudItem>
+
+        @if (!Permissions.IsPartnerScoped)
+        {
+            <MudItem xs="12" md="6">
+                <PartnerBreakdown Title="By logistics company" Buckets="_summary.ByLogisticsCompany" />
+            </MudItem>
+
+            <MudItem xs="12" md="6">
+                <PartnerBreakdown Title="By broker" Buckets="_summary.ByBroker" />
+            </MudItem>
+        }
+    </MudGrid>
+}
+
+@code {
+    protected override string PageKey => PageKeys.ShipmentsOnTheWay;
+
+    private InTransitSummary? _summary;
+
+    private int MaxStatusCount => _summary?.ByStatus.Count > 0 ? _summary.ByStatus.Max(b => b.Count) : 1;
+    private int MaxPerformanceCount => _summary?.ByPerformance.Count > 0 ? _summary.ByPerformance.Max(b => b.Count) : 1;
+    private int MaxAgingCount => _summary?.Aging.Count > 0 ? _summary.Aging.Max(b => b.Count) : 1;
+
+    private double LatePercentage =>
+        _summary is null || _summary.ShipmentCount == 0
+            ? 0
+            : (double)(_summary.OverdueCount + _summary.AtRiskCount) / _summary.ShipmentCount;
+
+    protected override Task OnCountryReadyAsync() => LoadAsync();
+
+    private async Task LoadAsync() => _summary = await Query.GetInTransitSummaryAsync(CountryId, Permissions);
+
+    private static Color PerformanceColour(PerformanceStatus status) => status switch
+    {
+        PerformanceStatus.OnTime => Color.Success,
+        PerformanceStatus.OnTrack => Color.Info,
+        PerformanceStatus.AtRisk => Color.Warning,
+        PerformanceStatus.Late or PerformanceStatus.Overdue => Color.Error,
+        _ => Color.Default
+    };
+}

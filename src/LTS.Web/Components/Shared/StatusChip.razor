@@ -1,0 +1,25 @@
+@using LTS.Domain.Enums
+
+<MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="@Colour" Class="ma-0">
+    @Status.ToDisplay()
+</MudChip>
+
+@code {
+    [Parameter, EditorRequired]
+    public TrackingStatus Status { get; set; }
+
+    /// <summary>
+    /// Colour tracks how far along the lifecycle the shipment is, so a grid can be scanned for
+    /// "what is still early" without reading every label.
+    /// </summary>
+    private Color Colour => Status switch
+    {
+        TrackingStatus.Created => Color.Default,
+        TrackingStatus.Loaded or TrackingStatus.ExportCustomsCleared or TrackingStatus.Departed => Color.Info,
+        TrackingStatus.ArrivedInTargetCountry or TrackingStatus.CustomsInProgress => Color.Warning,
+        TrackingStatus.CustomsCleared or TrackingStatus.AtCrossdock or TrackingStatus.InTransitToStore => Color.Primary,
+        TrackingStatus.ArrivedAtStore or TrackingStatus.PreAccepted => Color.Secondary,
+        TrackingStatus.Accepted => Color.Success,
+        _ => Color.Default
+    };
+}

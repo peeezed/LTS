@@ -1,0 +1,139 @@
+@page "/{CountryCode}/admin/audit-log"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inherits CountryPageBase
+@inject IAuditQueryService Audit
+
+<PageTitle>Audit log · LTS</PageTitle>
+
+@if (!Ready)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+}
+else
+{
+    <MudText Typo="Typo.h5" Class="mb-1">Audit Log</MudText>
+    <MudText Typo="Typo.body2" Class="mud-text-secondary mb-4">
+        Every change to a milestone date, including values an integration overwrote. Nothing is lost —
+        the previous value is always here.
+    </MudText>
+
+    <MudPaper Elevation="0" Outlined="true" Class="pa-3 mb-3">
+        <MudGrid Spacing="2">
+            <MudItem xs="12" md="3">
+                <MudTextField T="string" Value="_search" ValueChanged="OnSearchChanged" Label="Reference or transfer no"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" DebounceInterval="400"
+                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                              Clearable="true" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudSelect T="MilestoneSource?" Value="_source" ValueChanged="OnSourceChanged" Label="Source"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                    @foreach (var source in Enum.GetValues<MilestoneSource>())
+                    {
+                        <MudSelectItem T="MilestoneSource?" Value="@source">@source.ToDisplay()</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudSelect T="MilestoneType?" Value="_milestoneType" ValueChanged="OnMilestoneChanged" Label="Date field"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                    @foreach (var milestone in MilestoneCatalog.All)
+                    {
+                        <MudSelectItem T="MilestoneType?" Value="@milestone.Type">@milestone.DisplayName</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    <MudDataGrid T="AuditRow" @ref="_grid" ServerData="LoadAsync" Dense="true" Hover="true" Striped="true"
+                 Filterable="false" SortMode="SortMode.None" RowsPerPage="50" Elevation="1"
+                 FixedHeader="true" Height="calc(100vh - 340px)">
+        <Columns>
+            <PropertyColumn Property="x => x.ChangedAt" Title="When" Format="yyyy-MM-dd HH:mm:ss" />
+            <PropertyColumn Property="x => x.ReferenceNo" Title="Reference" />
+            <TemplateColumn Title="Transfer">
+                <CellTemplate>@(context.Item.TransferNo ?? "—")</CellTemplate>
+            </TemplateColumn>
+            <PropertyColumn Property="x => x.MilestoneName" Title="Date field" />
+            <TemplateColumn Title="From">
+                <CellTemplate>@(context.Item.OldValue?.ToString("yyyy-MM-dd") ?? "—")</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn Title="To">
+                <CellTemplate>@(context.Item.NewValue?.ToString("yyyy-MM-dd") ?? "cleared")</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn Title="Source">
+                <CellTemplate>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="@SourceColour(context.Item.Source)">
+                        @context.Item.Source.ToDisplay()
+                    </MudChip>
+                </CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn Title="By">
+                <CellTemplate>@(context.Item.UserName ?? "system")</CellTemplate>
+            </TemplateColumn>
+            <PropertyColumn Property="x => x.Note" Title="Note" />
+        </Columns>
+        <PagerContent>
+            <MudDataGridPager T="AuditRow" PageSizeOptions="new[] { 25, 50, 100 }" />
+        </PagerContent>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2" Class="pa-4">No changes match the current filters.</MudText>
+        </NoRecordsContent>
+    </MudDataGrid>
+}
+
+@code {
+    protected override string PageKey => PageKeys.AdminAuditLog;
+
+    private MudDataGrid<AuditRow>? _grid;
+    private string? _search;
+    private MilestoneSource? _source;
+    private MilestoneType? _milestoneType;
+
+    private async Task<GridData<AuditRow>> LoadAsync(GridState<AuditRow> state)
+    {
+        var filter = new AuditFilter
+        {
+            Search = _search,
+            Source = _source,
+            MilestoneType = _milestoneType
+        };
+
+        var result = await Audit.GetAuditAsync(
+            CountryId, Permissions, filter, new GridRequest(state.Page, state.PageSize));
+
+        return new GridData<AuditRow> { Items = result.Items, TotalItems = result.TotalCount };
+    }
+
+    private Task OnSearchChanged(string? value)
+    {
+        _search = value;
+        return ReloadAsync();
+    }
+
+    private Task OnSourceChanged(MilestoneSource? value)
+    {
+        _source = value;
+        return ReloadAsync();
+    }
+
+    private Task OnMilestoneChanged(MilestoneType? value)
+    {
+        _milestoneType = value;
+        return ReloadAsync();
+    }
+
+    private Task ReloadAsync() => _grid?.ReloadServerData() ?? Task.CompletedTask;
+
+    protected override Task OnCountryReadyAsync() => ReloadAsync();
+
+    private static Color SourceColour(MilestoneSource source) => source switch
+    {
+        MilestoneSource.Manual => Color.Primary,
+        MilestoneSource.ExcelUpload => Color.Secondary,
+        MilestoneSource.Integration => Color.Info,
+        MilestoneSource.InHouseService => Color.Success,
+        _ => Color.Default
+    };
+}

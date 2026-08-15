@@ -1,0 +1,250 @@
+@page "/{CountryCode}/date-upload"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inherits CountryPageBase
+@using LTS.Application.Excel
+@inject IDateImportService Import
+@inject IJSRuntime JS
+@inject ISnackbar Snackbar
+
+<PageTitle>Date upload · LTS</PageTitle>
+
+@if (!Ready)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+}
+else
+{
+    <MudText Typo="Typo.h5" Class="mb-1">Date Upload</MudText>
+    <MudText Typo="Typo.body2" Class="mud-text-secondary mb-4">
+        Enter many dates at once. Nothing is saved until you have seen what will change.
+    </MudText>
+
+    <MudPaper Elevation="1" Class="pa-4 mb-4">
+        <MudStack Row="true" Spacing="3" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Download"
+                       OnClick="DownloadTemplateAsync">
+                Download template
+            </MudButton>
+
+            <MudFileUpload T="IBrowserFile" FilesChanged="OnFileSelectedAsync" Accept=".xlsx"
+                           MaximumFileCount="1">
+                <ActivatorContent>
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.UploadFile" Disabled="_busy">
+                        Choose file
+                    </MudButton>
+                </ActivatorContent>
+            </MudFileUpload>
+
+            @if (_preview is not null)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">@_preview.FileName</MudText>
+            }
+        </MudStack>
+
+        <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mt-3">
+            The template contains only the dates your account is allowed to enter. Columns you do not
+            need can be deleted; the remaining ones are matched by their heading.
+        </MudText>
+    </MudPaper>
+
+    @if (_busy)
+    {
+        <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="mb-4" />
+    }
+
+    @if (_preview is not null)
+    {
+        @foreach (var error in _preview.FileErrors)
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-3">@error</MudAlert>
+        }
+
+        @if (_preview.Rows.Count > 0)
+        {
+            <MudPaper Elevation="1" Class="pa-4 mb-4">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3" Wrap="Wrap.Wrap">
+                    <MudChip T="string" Color="Color.Success" Variant="Variant.Filled" Size="Size.Small">
+                        @_preview.ValidCount ready to import
+                    </MudChip>
+                    @if (_preview.InvalidCount > 0)
+                    {
+                        <MudChip T="string" Color="Color.Error" Variant="Variant.Filled" Size="Size.Small">
+                            @_preview.InvalidCount rejected
+                        </MudChip>
+                    }
+                    <MudSpacer />
+                    @if (_committed is null)
+                    {
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || !_preview.CanImport)"
+                                   StartIcon="@Icons.Material.Filled.Save" OnClick="CommitAsync">
+                            Import @_preview.ValidCount date@(_preview.ValidCount == 1 ? "" : "s")
+                        </MudButton>
+                    }
+                    @if (HasAnyProblem)
+                    {
+                        <MudButton Variant="Variant.Outlined" Color="Color.Error" Class="ml-2"
+                                   StartIcon="@Icons.Material.Filled.Download" OnClick="DownloadErrorsAsync">
+                            Download error report
+                        </MudButton>
+                    }
+                </MudStack>
+
+                @if (_committed is not null)
+                {
+                    <MudAlert Severity="@(_committed.Applied > 0 ? Severity.Success : Severity.Warning)" Class="mb-3">
+                        Imported @_committed.Applied date@(_committed.Applied == 1 ? "" : "s").
+                        @if (_committed.Unchanged > 0)
+                        {
+                            <text> @_committed.Unchanged already had the same value.</text>
+                        }
+                        @if (_committed.Errors.Count > 0)
+                        {
+                            <text> @_committed.Errors.Count row(s) were rejected on save.</text>
+                        }
+                    </MudAlert>
+                }
+
+                <MudTable Items="RowsToShow" Dense="true" Hover="true" Height="420px" FixedHeader="true"
+                          Filter="null" Elevation="0">
+                    <HeaderContent>
+                        <MudTh>Sheet</MudTh>
+                        <MudTh>Row</MudTh>
+                        <MudTh>Reference</MudTh>
+                        <MudTh>Date Field</MudTh>
+                        <MudTh>Value</MudTh>
+                        <MudTh>Status</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>@context.Sheet</MudTd>
+                        <MudTd>@context.RowNumber</MudTd>
+                        <MudTd>@context.Reference</MudTd>
+                        <MudTd>@MilestoneCatalog.DisplayName(context.Type)</MudTd>
+                        <MudTd>@(context.Date?.ToString("yyyy-MM-dd") ?? context.RawValue)</MudTd>
+                        <MudTd>
+                            @if (context.IsValid)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text">OK</MudChip>
+                            }
+                            else
+                            {
+                                <MudTooltip Text="@context.Error">
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Text">
+                                        @context.Error
+                                    </MudChip>
+                                </MudTooltip>
+                            }
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+
+                @if (_committed?.Errors.Count > 0)
+                {
+                    <MudText Typo="Typo.subtitle2" Class="mt-4 mb-1">Rejected on save</MudText>
+                    <MudList T="string" Dense="true">
+                        @foreach (var error in _committed.Errors)
+                        {
+                            <MudListItem T="string" Icon="@Icons.Material.Filled.Error" IconColor="Color.Error">
+                                <MudText Typo="Typo.body2">@error.Reference — @error.Message</MudText>
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+            </MudPaper>
+        }
+    }
+}
+
+@code {
+    protected override string PageKey => PageKeys.DateUpload;
+
+    private const long MaxUploadBytes = 10 * 1024 * 1024;
+
+    private DateImportPreview? _preview;
+    private MilestoneApplyResult? _committed;
+    private bool _busy;
+
+    private bool HasAnyProblem =>
+        (_preview?.InvalidCount ?? 0) > 0 || (_committed?.Errors.Count ?? 0) > 0;
+
+    /// <summary>Rejected rows first — they are the ones that need attention.</summary>
+    private IEnumerable<DateImportRow> RowsToShow =>
+        _preview is null ? [] : _preview.InvalidRows.Concat(_preview.ValidRows);
+
+    private async Task DownloadTemplateAsync()
+    {
+        var bytes = Import.BuildTemplate(Permissions, CountryId);
+        await DownloadAsync($"LTS-date-template-{Country.CountryCode}.xlsx", bytes);
+    }
+
+    private async Task OnFileSelectedAsync(IBrowserFile? file)
+    {
+        if (file is null)
+        {
+            return;
+        }
+
+        _busy = true;
+        _preview = null;
+        _committed = null;
+
+        try
+        {
+            // Read into memory first: ClosedXML needs a seekable stream, and the browser stream
+            // is forward-only.
+            using var buffer = new MemoryStream();
+            await using (var source = file.OpenReadStream(MaxUploadBytes))
+            {
+                await source.CopyToAsync(buffer);
+            }
+
+            buffer.Position = 0;
+            _preview = Import.Parse(buffer, file.Name, Permissions, CountryId);
+        }
+        catch (IOException exception)
+        {
+            _preview = DateImportPreview.Failed(file.Name, $"The file could not be read: {exception.Message}");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CommitAsync()
+    {
+        if (_preview is null)
+        {
+            return;
+        }
+
+        _busy = true;
+
+        try
+        {
+            _committed = await Import.CommitAsync(_preview, Permissions);
+
+            Snackbar.Add(
+                $"Imported {_committed.Applied} date{(_committed.Applied == 1 ? "" : "s")}.",
+                _committed.Applied > 0 ? Severity.Success : Severity.Warning);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task DownloadErrorsAsync()
+    {
+        if (_preview is null)
+        {
+            return;
+        }
+
+        var bytes = Import.BuildErrorReport(_preview, _committed?.Errors ?? []);
+        await DownloadAsync($"LTS-date-upload-errors-{DateTime.UtcNow:yyyyMMdd-HHmm}.xlsx", bytes);
+    }
+
+    private async Task DownloadAsync(string fileName, byte[] bytes) =>
+        await JS.InvokeVoidAsync("ltsDownload", fileName, Convert.ToBase64String(bytes));
+}

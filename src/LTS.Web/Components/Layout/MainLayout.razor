@@ -1,0 +1,78 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@inject CountryContext Country
+@inject NavigationManager Navigation
+
+<MudThemeProvider Theme="LtsTheme.Default" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudLayout>
+    <MudAppBar Elevation="1" Color="Color.Primary">
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start"
+                       OnClick="ToggleDrawer" />
+        <MudText Typo="Typo.h6" Class="ml-2">LTS</MudText>
+        <MudText Typo="Typo.caption" Class="ml-2 mt-1 d-none d-sm-flex">Logistics Tracking System</MudText>
+
+        <MudSpacer />
+
+        @if (Country.HasCountry)
+        {
+            @* The country is part of every route, so switching it is a navigation, not a mode toggle. *@
+            <MudButton StartIcon="@Icons.Material.Filled.Public" Color="Color.Inherit"
+                       Href="/" Class="mr-2">
+                @Country.Current!.Display
+            </MudButton>
+        }
+
+        <AuthorizeView>
+            <Authorized>
+                <MudMenu Icon="@Icons.Material.Filled.AccountCircle" Color="Color.Inherit" Dense="true"
+                         AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                    <MudMenuItem Disabled="true">
+                        <MudText Typo="Typo.body2">@context.User.Identity?.Name</MudText>
+                    </MudMenuItem>
+                    <MudDivider />
+                    <MudMenuItem Href="/change-password" Icon="@Icons.Material.Filled.Password">
+                        Change password
+                    </MudMenuItem>
+                    <MudMenuItem Href="/logout" ForceLoad="true" Icon="@Icons.Material.Filled.Logout">
+                        Sign out
+                    </MudMenuItem>
+                </MudMenu>
+            </Authorized>
+        </AuthorizeView>
+    </MudAppBar>
+
+    <MudDrawer @bind-Open="_drawerOpen" Elevation="1" ClipMode="DrawerClipMode.Always" Variant="DrawerVariant.Mini"
+               OpenMiniOnHover="true">
+        <NavMenu />
+    </MudDrawer>
+
+    <MudMainContent Class="pt-16 pa-4">
+        <MudContainer MaxWidth="MaxWidth.False">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
+<div id="blazor-error-ui" data-nosnippet>
+    An unhandled error has occurred.
+    <a href="." class="reload">Reload</a>
+    <span class="dismiss">🗙</span>
+</div>
+
+@code {
+    private bool _drawerOpen = true;
+
+    protected override void OnInitialized() => Country.Changed += OnCountryChanged;
+
+    private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
+
+    // The navigation and the country button both depend on the selected country, which pages
+    // set from their route parameter after this layout has already rendered.
+    private void OnCountryChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose() => Country.Changed -= OnCountryChanged;
+}

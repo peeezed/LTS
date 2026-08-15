@@ -1,0 +1,307 @@
+@page "/{CountryCode}/shipment-details"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inherits CountryPageBase
+@inject IShipmentQueryService Query
+@inject IMilestoneService Milestones
+@inject ISnackbar Snackbar
+
+<PageTitle>Shipment details · LTS</PageTitle>
+
+@if (!Ready)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+}
+else
+{
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+        <MudText Typo="Typo.h5">Shipment Details</MudText>
+        <MudSpacer />
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">
+            @(CanEdit ? "Enter the dates your company is responsible for" : "Read-only view")
+        </MudText>
+    </MudStack>
+
+    <MudPaper Elevation="0" Outlined="true" Class="pa-3 mb-4">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudTextField T="string" @bind-Value="_reference" Label="Reference or invoice number"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="false"
+                          OnKeyUp="OnSearchKeyAsync" Style="max-width: 380px;" Clearable="true" />
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadShipmentAsync"
+                       StartIcon="@Icons.Material.Filled.Search" Disabled="_busy">
+                Open
+            </MudButton>
+        </MudStack>
+    </MudPaper>
+
+    @if (_notFound)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mb-4">
+            No shipment with that reference or invoice number exists in @Country.Current!.Name, or it is not one of yours.
+        </MudAlert>
+    }
+
+    @if (_errors.Count > 0)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-4">
+            <MudText Typo="Typo.subtitle2" Class="mb-1">Some dates were not saved</MudText>
+            <ul class="ma-0 pl-4">
+                @foreach (var error in _errors)
+                {
+                    <li>@error.Message</li>
+                }
+            </ul>
+        </MudAlert>
+    }
+
+    @if (_shipment is not null)
+    {
+        <MudPaper Elevation="1" Class="pa-4 mb-4">
+            <MudGrid Spacing="3">
+                <MudItem xs="12" md="8">
+                    <MudText Typo="Typo.h6">@_shipment.ReferenceNo</MudText>
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                        Invoice @_shipment.InvoiceNo · @_shipment.InvoiceDate.ToString("yyyy-MM-dd")
+                    </MudText>
+                    <MudStack Row="true" Spacing="2" Class="mt-2">
+                        <StatusChip Status="_shipment.CurrentStatus" />
+                        <PerformanceChip Performance="_shipment.Performance" />
+                    </MudStack>
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudStack Row="true" Justify="Justify.SpaceEvenly">
+                        <Stat Label="Transfers" Value="@_shipment.TransferCount.ToString("N0")" />
+                        <Stat Label="Boxes" Value="@_shipment.TotalBoxes.ToString("N0")" />
+                        <Stat Label="Items" Value="@_shipment.TotalItems.ToString("N0")" />
+                    </MudStack>
+                </MudItem>
+            </MudGrid>
+
+            <MudDivider Class="my-3" />
+
+            <MudGrid Spacing="2">
+                <Attribute Label="Arrival Country" Value="@_shipment.ArrivalCountry" />
+                <Attribute Label="Arrival Customs" Value="@_shipment.ArrivalCustoms" />
+                <Attribute Label="Export Type" Value="@_shipment.ExportType" />
+                <Attribute Label="Transport Type" Value="@_shipment.TransportType" />
+                <Attribute Label="Loading Point" Value="@_shipment.LoadingPoint" />
+                <Attribute Label="Logistics Company" Value="@_shipment.LogisticsCompany" />
+                <Attribute Label="Broker" Value="@_shipment.Broker" />
+            </MudGrid>
+        </MudPaper>
+
+        <MudPaper Elevation="1" Class="pa-4 mb-4">
+            <MudText Typo="Typo.h6" Class="mb-1">Shipment dates</MudText>
+            <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
+                Only the dates your account is responsible for are shown.
+            </MudText>
+
+            @if (VisibleShipmentMilestones.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info" Dense="true">
+                    None of the shipment-level dates belong to your account.
+                </MudAlert>
+            }
+            else
+            {
+                <MudGrid Spacing="2">
+                    @foreach (var milestone in VisibleShipmentMilestones)
+                    {
+                        <MudItem xs="12" sm="6" md="3">
+                            <MudDatePicker Label="@milestone.DisplayName"
+                                           Date="@Get(ShipmentKey, milestone.Type)"
+                                           DateChanged="@(date => Set(ShipmentKey, milestone.Type, date))"
+                                           ReadOnly="@(!Permissions.CanEditMilestone(milestone.Type, CountryId))"
+                                           Variant="Variant.Outlined" Margin="Margin.Dense"
+                                           DateFormat="yyyy-MM-dd" Clearable="true" />
+                        </MudItem>
+                    }
+                </MudGrid>
+            }
+        </MudPaper>
+
+        @if (VisibleTransferMilestones.Count > 0 && _shipment.Transfers.Count > 0)
+        {
+            <MudPaper Elevation="1" Class="pa-4 mb-4">
+                <MudText Typo="Typo.h6" Class="mb-1">Transfer dates</MudText>
+                <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
+                    Normally supplied by the warehouse integration; enter them here when it has not delivered.
+                </MudText>
+
+                @foreach (var transfer in _shipment.Transfers)
+                {
+                    <MudExpansionPanels Elevation="0" Class="mb-2">
+                        <MudExpansionPanel Text="@($"{transfer.TransferNo} · {transfer.Receiver}")">
+                            <MudGrid Spacing="2">
+                                @foreach (var milestone in VisibleTransferMilestones)
+                                {
+                                    <MudItem xs="12" sm="6" md="3">
+                                        <MudDatePicker Label="@milestone.DisplayName"
+                                                       Date="@Get(transfer.TransferNo, milestone.Type)"
+                                                       DateChanged="@(date => Set(transfer.TransferNo, milestone.Type, date))"
+                                                       ReadOnly="@(!Permissions.CanEditMilestone(milestone.Type, CountryId))"
+                                                       Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                       DateFormat="yyyy-MM-dd" Clearable="true" />
+                                    </MudItem>
+                                }
+                            </MudGrid>
+                        </MudExpansionPanel>
+                    </MudExpansionPanels>
+                }
+            </MudPaper>
+        }
+
+        @if (CanEdit)
+        {
+            <MudStack Row="true" Spacing="2">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync"
+                           StartIcon="@Icons.Material.Filled.Save" Disabled="@(_busy || !HasChanges)">
+                    Save dates
+                </MudButton>
+                <MudButton Variant="Variant.Text" OnClick="ResetChanges" Disabled="@(!HasChanges)">
+                    Discard changes
+                </MudButton>
+                @if (HasChanges)
+                {
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary align-self-center">
+                        @_edits.Count unsaved change@(_edits.Count == 1 ? "" : "s")
+                    </MudText>
+                }
+            </MudStack>
+        }
+    }
+}
+
+@code {
+    protected override string PageKey => PageKeys.ShipmentDetails;
+
+    /// <summary>Key used for the shipment's own dates in the edit dictionary.</summary>
+    private const string ShipmentKey = "#shipment";
+
+    [SupplyParameterFromQuery(Name = "reference")]
+    private string? ReferenceFromQuery { get; set; }
+
+    private string? _reference;
+    private ShipmentDetail? _shipment;
+    private bool _notFound;
+    private bool _busy;
+
+    // Pending edits, keyed by entity (the shipment, or a transfer number) and milestone.
+    private readonly Dictionary<(string Entity, MilestoneType Type), DateOnly?> _edits = [];
+    private List<MilestoneError> _errors = [];
+
+    private bool HasChanges => _edits.Count > 0;
+
+    private IReadOnlyList<MilestoneDefinition> VisibleShipmentMilestones =>
+        [.. MilestoneCatalog.ShipmentMilestones.Where(m => Permissions.CanViewMilestone(m.Type))];
+
+    private IReadOnlyList<MilestoneDefinition> VisibleTransferMilestones =>
+        [.. MilestoneCatalog.TransferMilestones.Where(m => Permissions.CanViewMilestone(m.Type))];
+
+    protected override async Task OnCountryReadyAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(ReferenceFromQuery))
+        {
+            _reference = ReferenceFromQuery;
+            await LoadShipmentAsync();
+        }
+    }
+
+    private async Task OnSearchKeyAsync(KeyboardEventArgs args)
+    {
+        if (args.Key is "Enter" or "NumpadEnter")
+        {
+            await LoadShipmentAsync();
+        }
+    }
+
+    private async Task LoadShipmentAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_reference))
+        {
+            return;
+        }
+
+        _busy = true;
+        _errors = [];
+        _edits.Clear();
+
+        _shipment = await Query.GetShipmentDetailAsync(CountryId, Permissions, _reference);
+        _notFound = _shipment is null;
+        _busy = false;
+    }
+
+    /// <summary>Current value for a field: the pending edit if there is one, otherwise what was loaded.</summary>
+    private DateTime? Get(string entity, MilestoneType type)
+    {
+        if (_edits.TryGetValue((entity, type), out var edited))
+        {
+            return edited?.ToDateTime(TimeOnly.MinValue);
+        }
+
+        var stored = entity == ShipmentKey
+            ? _shipment?.Milestones.GetValueOrDefault(type)
+            : _shipment?.Transfers.FirstOrDefault(t => t.TransferNo == entity)?.Milestones.GetValueOrDefault(type);
+
+        return stored?.ToDateTime(TimeOnly.MinValue);
+    }
+
+    private void Set(string entity, MilestoneType type, DateTime? value)
+    {
+        var newValue = value is null ? (DateOnly?)null : DateOnly.FromDateTime(value.Value);
+
+        var stored = entity == ShipmentKey
+            ? _shipment?.Milestones.GetValueOrDefault(type)
+            : _shipment?.Transfers.FirstOrDefault(t => t.TransferNo == entity)?.Milestones.GetValueOrDefault(type);
+
+        // Setting a field back to its stored value is not a change, so the Save button honestly
+        // reflects whether there is anything to save.
+        if (stored == newValue)
+        {
+            _edits.Remove((entity, type));
+            return;
+        }
+
+        _edits[(entity, type)] = newValue;
+    }
+
+    private void ResetChanges()
+    {
+        _edits.Clear();
+        _errors = [];
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_shipment is null || _edits.Count == 0)
+        {
+            return;
+        }
+
+        _busy = true;
+        _errors = [];
+
+        var changes = _edits.Select(edit => new MilestoneChange(
+            edit.Key.Entity == ShipmentKey ? _shipment.ReferenceNo : edit.Key.Entity,
+            edit.Key.Type,
+            edit.Value));
+
+        var result = await Milestones.ApplyAsync(changes, MilestoneApplyOptions.Manual, Permissions);
+        _errors = [.. result.Errors];
+
+        if (result.Applied > 0)
+        {
+            Snackbar.Add($"Saved {result.Applied} date{(result.Applied == 1 ? "" : "s")}.", Severity.Success);
+        }
+
+        if (result.HasErrors && result.Applied == 0)
+        {
+            Snackbar.Add("No dates were saved.", Severity.Error);
+        }
+
+        _edits.Clear();
+        _busy = false;
+
+        // Reload so status, performance and the transfer rollups reflect what was just written.
+        _shipment = await Query.GetShipmentDetailAsync(CountryId, Permissions, _shipment.ReferenceNo);
+    }
+}

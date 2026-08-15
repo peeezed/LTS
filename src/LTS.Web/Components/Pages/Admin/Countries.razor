@@ -1,0 +1,146 @@
+@page "/admin/countries"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inject IReferenceDataService Reference
+@inject IMasterDataService MasterData
+@inject PermissionState PermissionState
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+
+<PageTitle>Countries · LTS</PageTitle>
+
+@if (!_ready)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+}
+else
+{
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-1">
+        <MudText Typo="Typo.h5">Countries</MudText>
+        <MudSpacer />
+        @if (_canEdit)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                       OnClick="() => Edit(null)">
+                Add country
+            </MudButton>
+        }
+    </MudStack>
+
+    <MudText Typo="Typo.body2" Class="mud-text-secondary mb-4">
+        Adding a country to LTS is a data operation: create it here, fill in its master data, then
+        configure its integration sources and status mappings. No part of the tracking model changes.
+    </MudText>
+
+    <MudTable Items="_countries" Dense="true" Hover="true" Elevation="1">
+        <HeaderContent>
+            <MudTh>Code</MudTh>
+            <MudTh>Name</MudTh>
+            <MudTh>Active</MudTh>
+            <MudTh></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>@context.Code</MudTd>
+            <MudTd>@context.Name</MudTd>
+            <MudTd><ActiveIcon IsActive="context.IsActive" /></MudTd>
+            <MudTd>
+                <MudStack Row="true" Spacing="0">
+                    @if (_canEdit)
+                    {
+                        <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small" OnClick="() => Edit(context)" />
+                    }
+                    <MudTooltip Text="Open this country">
+                        <MudIconButton Icon="@Icons.Material.Filled.Login" Size="Size.Small"
+                                       Href="@($"/{context.Code}/shipments")" />
+                    </MudTooltip>
+                </MudStack>
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+
+    @if (_editing is not null)
+    {
+        <MudPaper Elevation="1" Class="pa-4 mt-3">
+            <MudText Typo="Typo.subtitle1" Class="mb-3">
+                @(_editing.Id == 0 ? "New country" : $"Edit {_editing.Name}")
+            </MudText>
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="2">
+                    <MudTextField T="string" @bind-Value="_code" Label="ISO code" MaxLength="2"
+                                  Variant="Variant.Outlined" Margin="Margin.Dense"
+                                  HelperText="Two letters; used in every URL" />
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudTextField T="string" @bind-Value="_name" Label="Name" Variant="Variant.Outlined"
+                                  Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="12" sm="3">
+                    <MudSwitch T="bool" @bind-Value="_isActive" Label="Active" Color="Color.Primary" />
+                </MudItem>
+                <MudItem xs="12" sm="3">
+                    <MudTooltip Text="Not yet available: KPI durations are counted in calendar days until a holiday calendar exists for the country.">
+                        <MudSwitch T="bool" @bind-Value="_useWorkingDays" Label="Count working days" Disabled="true"
+                                   Color="Color.Primary" />
+                    </MudTooltip>
+                </MudItem>
+                <MudItem xs="12" Class="d-flex gap-2">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">Save</MudButton>
+                    <MudButton Variant="Variant.Text" OnClick="() => _editing = null">Cancel</MudButton>
+                </MudItem>
+            </MudGrid>
+        </MudPaper>
+    }
+}
+
+@code {
+    private IReadOnlyList<CountryDto> _countries = [];
+    private CountryDto? _editing;
+    private string _code = string.Empty;
+    private string _name = string.Empty;
+    private bool _isActive = true;
+    private bool _useWorkingDays;
+    private bool _ready;
+    private bool _canEdit;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var permissions = await PermissionState.GetAsync();
+
+        if (!permissions.CanView(PageKeys.AdminCountries, null))
+        {
+            Navigation.NavigateTo("/access-denied", replace: true);
+            return;
+        }
+
+        _canEdit = permissions.CanEdit(PageKeys.AdminCountries, null);
+        await LoadAsync();
+        _ready = true;
+    }
+
+    private async Task LoadAsync() => _countries = await Reference.GetCountriesAsync(activeOnly: false);
+
+    private void Edit(CountryDto? country)
+    {
+        _editing = country ?? new CountryDto(0, string.Empty, string.Empty, true);
+        _code = _editing.Code;
+        _name = _editing.Name;
+        _isActive = _editing.IsActive;
+        _useWorkingDays = false;
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            await MasterData.SaveCountryAsync(new CountryInput(
+                _editing!.Id == 0 ? null : _editing.Id, _code, _name, _isActive, _useWorkingDays));
+
+            _editing = null;
+            Snackbar.Add("Country saved.", Severity.Success);
+            await LoadAsync();
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+}

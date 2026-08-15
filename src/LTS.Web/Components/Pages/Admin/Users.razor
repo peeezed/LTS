@@ -1,0 +1,265 @@
+@page "/admin/users"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inject IUserAdminService Admin
+@inject IReferenceDataService Reference
+@inject PermissionState PermissionState
+@inject NavigationManager Navigation
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+
+<PageTitle>Users · LTS</PageTitle>
+
+@if (!_ready)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+}
+else
+{
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-1">
+        <MudText Typo="Typo.h5">Users &amp; Permissions</MudText>
+        <MudSpacer />
+        @if (_canEdit)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PersonAdd"
+                       OnClick="() => EditAsync(null)">
+                Create account
+            </MudButton>
+        }
+    </MudStack>
+
+    <MudText Typo="Typo.body2" Class="mud-text-secondary mb-4">
+        Accounts are created here — there is no self-registration. Each one is granted the countries it
+        may enter and, within those, the pages it may see and edit.
+    </MudText>
+
+    @if (_issuedPassword is not null)
+    {
+        <MudAlert Severity="Severity.Success" Class="mb-4" ShowCloseIcon="true"
+                  CloseIconClicked="() => _issuedPassword = null">
+            <MudText Typo="Typo.subtitle2">One-time password for @_issuedFor</MudText>
+            <MudText Typo="Typo.body2">
+                <span class="mono" style="font-size: 1.05rem;">@_issuedPassword</span>
+                — pass this to the user by a channel you trust. It is shown once and must be changed at first sign-in.
+            </MudText>
+        </MudAlert>
+    }
+
+    <MudDataGrid T="UserRow" Items="_users" Dense="true" Hover="true" Striped="true"
+                 SortMode="SortMode.Single" Elevation="1" RowsPerPage="25" Filterable="false"
+                 QuickFilter="QuickFilter">
+        <ToolBarContent>
+            <MudTextField T="string" @bind-Value="_search" Placeholder="Search name, email or company"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                          Immediate="true" DebounceInterval="250" Variant="Variant.Outlined"
+                          Margin="Margin.Dense" Clearable="true" Style="max-width: 380px;" />
+        </ToolBarContent>
+        <Columns>
+            <PropertyColumn Property="x => x.FullName" Title="Name" />
+            <PropertyColumn Property="x => x.Email" Title="Email" />
+            <TemplateColumn Title="Type" SortBy="x => x.UserType">
+                <CellTemplate>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="@TypeColour(context.Item.UserType)">
+                        @context.Item.UserType.ToDisplay()
+                    </MudChip>
+                </CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn Title="Company">
+                <CellTemplate>@(context.Item.PartnerName ?? "—")</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn Title="Countries" Sortable="false">
+                <CellTemplate>
+                    @if (context.Item.UserType == UserType.Admin)
+                    {
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Color.Primary">All</MudChip>
+                    }
+                    else
+                    {
+                        @string.Join(", ", context.Item.Countries)
+                    }
+                </CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn Title="Last sign-in" SortBy="x => x.LastLoginAt">
+                <CellTemplate>@(context.Item.LastLoginAt?.ToString("yyyy-MM-dd HH:mm") ?? "Never")</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn Title="Status" SortBy="x => x.IsActive">
+                <CellTemplate>
+                    @if (!context.Item.IsActive)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Filled">Disabled</MudChip>
+                    }
+                    else if (context.Item.MustChangePassword)
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Text">
+                            Password reset pending
+                        </MudChip>
+                    }
+                    else
+                    {
+                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text">Active</MudChip>
+                    }
+                </CellTemplate>
+            </TemplateColumn>
+            @if (_canEdit)
+            {
+                <TemplateColumn Title="" Sortable="false">
+                    <CellTemplate>
+                        <MudStack Row="true" Spacing="0">
+                            <MudTooltip Text="Edit account and permissions">
+                                <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                               OnClick="() => EditAsync(context.Item)" />
+                            </MudTooltip>
+                            <MudTooltip Text="Issue a new one-time password">
+                                <MudIconButton Icon="@Icons.Material.Filled.Password" Size="Size.Small"
+                                               OnClick="() => ResetPasswordAsync(context.Item)" />
+                            </MudTooltip>
+                            <MudTooltip Text="@(context.Item.IsActive ? "Disable account" : "Enable account")">
+                                <MudIconButton Size="Size.Small"
+                                               Icon="@(context.Item.IsActive ? Icons.Material.Filled.Block : Icons.Material.Filled.CheckCircle)"
+                                               Color="@(context.Item.IsActive ? Color.Error : Color.Success)"
+                                               OnClick="() => ToggleActiveAsync(context.Item)" />
+                            </MudTooltip>
+                        </MudStack>
+                    </CellTemplate>
+                </TemplateColumn>
+            }
+        </Columns>
+        <PagerContent>
+            <MudDataGridPager T="UserRow" />
+        </PagerContent>
+    </MudDataGrid>
+}
+
+@code {
+    private IReadOnlyList<UserRow> _users = [];
+    private IReadOnlyList<CountryDto> _countries = [];
+    private IReadOnlyList<PartnerDto> _partners = [];
+    private string? _search;
+    private string? _issuedPassword;
+    private string? _issuedFor;
+    private bool _ready;
+    private bool _canEdit;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var permissions = await PermissionState.GetAsync();
+
+        // User administration is not country-scoped: it grants access across all of them.
+        if (!permissions.CanView(PageKeys.AdminUsers, null))
+        {
+            Navigation.NavigateTo("/access-denied", replace: true);
+            return;
+        }
+
+        _canEdit = permissions.CanEdit(PageKeys.AdminUsers, null);
+        _countries = await Reference.GetCountriesAsync();
+        _partners = await Reference.GetPartnersAsync();
+
+        await LoadAsync();
+        _ready = true;
+    }
+
+    private async Task LoadAsync() => _users = await Admin.GetUsersAsync();
+
+    private bool QuickFilter(UserRow row)
+    {
+        if (string.IsNullOrWhiteSpace(_search))
+        {
+            return true;
+        }
+
+        var term = _search.Trim();
+
+        return row.FullName.Contains(term, StringComparison.OrdinalIgnoreCase)
+               || row.Email.Contains(term, StringComparison.OrdinalIgnoreCase)
+               || (row.PartnerName?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false);
+    }
+
+    private async Task EditAsync(UserRow? row)
+    {
+        var existing = row is null ? null : await Admin.GetUserAsync(row.Id);
+
+        var parameters = new DialogParameters<UserDialog>
+        {
+            { x => x.Existing, existing },
+            { x => x.Countries, _countries },
+            { x => x.Partners, _partners }
+        };
+
+        var dialog = await Dialogs.ShowAsync<UserDialog>(
+            row is null ? "Create account" : $"Edit {row.FullName}",
+            parameters,
+            new DialogOptions { MaxWidth = MaxWidth.Large, FullWidth = true, CloseButton = true });
+
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not UserInput input)
+        {
+            return;
+        }
+
+        var saved = await Admin.SaveAsync(input);
+
+        if (!saved.Succeeded)
+        {
+            foreach (var error in saved.Errors)
+            {
+                Snackbar.Add(error, Severity.Error);
+            }
+
+            return;
+        }
+
+        if (saved.TemporaryPassword is not null)
+        {
+            _issuedPassword = saved.TemporaryPassword;
+            _issuedFor = input.Email;
+        }
+
+        Snackbar.Add("Account saved.", Severity.Success);
+        await LoadAsync();
+    }
+
+    private async Task ResetPasswordAsync(UserRow row)
+    {
+        var confirmed = await Dialogs.ShowMessageBox(
+            "Reset password",
+            $"Issue a new one-time password for {row.FullName}? Their current password stops working immediately.",
+            yesText: "Reset", cancelText: "Cancel");
+
+        if (confirmed != true)
+        {
+            return;
+        }
+
+        var result = await Admin.ResetPasswordAsync(row.Id);
+
+        if (!result.Succeeded)
+        {
+            foreach (var error in result.Errors)
+            {
+                Snackbar.Add(error, Severity.Error);
+            }
+
+            return;
+        }
+
+        _issuedPassword = result.TemporaryPassword;
+        _issuedFor = row.Email;
+        await LoadAsync();
+    }
+
+    private async Task ToggleActiveAsync(UserRow row)
+    {
+        await Admin.SetActiveAsync(row.Id, !row.IsActive);
+        Snackbar.Add(row.IsActive ? "Account disabled." : "Account enabled.", Severity.Success);
+        await LoadAsync();
+    }
+
+    private static Color TypeColour(UserType type) => type switch
+    {
+        UserType.Admin => Color.Error,
+        UserType.LogisticsDepartment => Color.Primary,
+        UserType.Broker => Color.Secondary,
+        UserType.LogisticsCompany => Color.Info,
+        _ => Color.Default
+    };
+}

@@ -1,0 +1,102 @@
+@page "/{CountryCode}/transfers"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inherits CountryPageBase
+@inject IShipmentQueryService Query
+
+<PageTitle>Transfers · LTS</PageTitle>
+
+@if (!Ready)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+}
+else
+{
+    <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+        <MudText Typo="Typo.h5">Transfers</MudText>
+        <MudSpacer />
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">
+            The store legs a shipment is split into at the crossdock
+        </MudText>
+    </MudStack>
+
+    <ShipmentFilterBar Permissions="Permissions" FilterChanged="OnFilterChangedAsync" />
+
+    <MudDataGrid T="TransferRow" @ref="_grid" ServerData="LoadAsync" Dense="true" Hover="true" Striped="true"
+                 Filterable="false" SortMode="SortMode.Single" RowsPerPage="50" Elevation="1"
+                 FixedHeader="true" Height="calc(100vh - 320px)">
+        <Columns>
+            <PropertyColumn Property="x => x.TransferNo" Title="Transfer No" />
+            <PropertyColumn Property="x => x.InvoiceNo" Title="Invoice No" />
+            <PropertyColumn Property="x => x.DateCreated" Title="Date Created" Format="yyyy-MM-dd" />
+
+            <TemplateColumn Title="Receiver" SortBy="x => x.StoreCode">
+                <CellTemplate>@context.Item.Receiver</CellTemplate>
+            </TemplateColumn>
+
+            <TemplateColumn Title="Current Status" SortBy="x => x.CurrentStatus">
+                <CellTemplate><StatusChip Status="context.Item.CurrentStatus" /></CellTemplate>
+            </TemplateColumn>
+
+            <TemplateColumn Title="Performance" SortBy="x => x.Performance">
+                <CellTemplate><PerformanceChip Performance="context.Item.Performance" /></CellTemplate>
+            </TemplateColumn>
+
+            <PropertyColumn Property="x => x.TotalBoxes" Title="Total Boxes" />
+            <PropertyColumn Property="x => x.TotalItems" Title="Total Items" />
+
+            <PropertyColumn Property="x => x.CrossdockDepartureDate" Title="Crossdock Departure" Format="yyyy-MM-dd" />
+            <PropertyColumn Property="x => x.PlannedStoreArrivalDate" Title="Planned Store Arrival" Format="yyyy-MM-dd" />
+            <PropertyColumn Property="x => x.StoreArrivalDate" Title="Store Arrival" Format="yyyy-MM-dd" />
+            <PropertyColumn Property="x => x.StorePreAcceptanceDate" Title="Store Pre Acceptance" Format="yyyy-MM-dd" />
+            <PropertyColumn Property="x => x.StoreAcceptanceDate" Title="Store Acceptance" Format="yyyy-MM-dd" />
+
+            <TemplateColumn Title="" Sortable="false">
+                <CellTemplate>
+                    <MudTooltip Text="Open shipment details">
+                        <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small"
+                                       Href="@($"/{Country.CountryCode}/shipment-details?reference={context.Item.ReferenceNo}")" />
+                    </MudTooltip>
+                </CellTemplate>
+            </TemplateColumn>
+        </Columns>
+        <PagerContent>
+            <MudDataGridPager T="TransferRow" PageSizeOptions="new[] { 25, 50, 100, 250 }" />
+        </PagerContent>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2" Class="pa-4">No transfers match the current filters.</MudText>
+        </NoRecordsContent>
+    </MudDataGrid>
+}
+
+@code {
+    protected override string PageKey => PageKeys.Transfers;
+
+    private MudDataGrid<TransferRow>? _grid;
+    private ShipmentFilter _filter = new();
+
+    private async Task<GridData<TransferRow>> LoadAsync(GridState<TransferRow> state)
+    {
+        var sort = state.SortDefinitions.FirstOrDefault();
+
+        var result = await Query.GetTransfersAsync(
+            CountryId,
+            Permissions,
+            _filter,
+            new GridRequest(state.Page, state.PageSize, sort?.SortBy, sort?.Descending ?? false));
+
+        return new GridData<TransferRow> { Items = result.Items, TotalItems = result.TotalCount };
+    }
+
+    private async Task OnFilterChangedAsync(ShipmentFilter filter)
+    {
+        _filter = filter;
+
+        if (_grid is not null)
+        {
+            await _grid.ReloadServerData();
+        }
+    }
+
+    protected override Task OnCountryReadyAsync() =>
+        _grid is null ? Task.CompletedTask : _grid.ReloadServerData();
+}

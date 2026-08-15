@@ -1,0 +1,104 @@
+@page "/login"
+@layout EmptyLayout
+@attribute [AllowAnonymous]
+@using System.ComponentModel.DataAnnotations
+@using LTS.Domain.Entities
+@using Microsoft.AspNetCore.Identity
+@inject SignInManager<AppUser> SignInManager
+@inject UserManager<AppUser> UserManager
+@inject NavigationManager Navigation
+
+@* Static server rendering: signing in has to write a cookie, which an interactive circuit cannot do. *@
+
+<PageTitle>Sign in · LTS</PageTitle>
+
+<div class="login-shell">
+    <MudPaper Elevation="3" Class="pa-8" Style="width: 100%; max-width: 420px;">
+        <MudText Typo="Typo.h5" Class="mb-1">Logistics Tracking System</MudText>
+        <MudText Typo="Typo.body2" Class="mb-6 mud-text-secondary">Sign in to continue</MudText>
+
+        <EditForm Model="Input" method="post" OnValidSubmit="SignInAsync" FormName="login">
+            <DataAnnotationsValidator />
+
+            @if (!string.IsNullOrEmpty(_error))
+            {
+                <MudAlert Severity="Severity.Error" Class="mb-4" Dense="true">@_error</MudAlert>
+            }
+
+            <div class="form-field">
+                <label for="email">Email</label>
+                <InputText id="email" @bind-Value="Input.Email" class="form-input" autocomplete="username" />
+                <ValidationMessage For="() => Input.Email" />
+            </div>
+
+            <div class="form-field">
+                <label for="password">Password</label>
+                <InputText id="password" @bind-Value="Input.Password" type="password" class="form-input"
+                           autocomplete="current-password" />
+                <ValidationMessage For="() => Input.Password" />
+            </div>
+
+            <button type="submit" class="form-submit">Sign in</button>
+        </EditForm>
+    </MudPaper>
+</div>
+
+@code {
+    [SupplyParameterFromForm]
+    private LoginInput Input { get; set; } = new();
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    private string? _error;
+
+    private async Task SignInAsync()
+    {
+        var user = await UserManager.FindByEmailAsync(Input.Email);
+
+        // Deactivated accounts are refused here rather than after a successful password check,
+        // and the message stays identical either way so it reveals nothing about the account.
+        if (user is null || !user.IsActive)
+        {
+            _error = "Incorrect email or password.";
+            return;
+        }
+
+        var result = await SignInManager.PasswordSignInAsync(
+            user, Input.Password, isPersistent: false, lockoutOnFailure: true);
+
+        if (result.IsLockedOut)
+        {
+            _error = "This account is locked after too many failed attempts. Try again later.";
+            return;
+        }
+
+        if (!result.Succeeded)
+        {
+            _error = "Incorrect email or password.";
+            return;
+        }
+
+        user.LastLoginAt = DateTime.UtcNow;
+        await UserManager.UpdateAsync(user);
+
+        // A password issued by an administrator has to be replaced before anything else.
+        if (user.MustChangePassword)
+        {
+            Navigation.NavigateTo("/change-password", forceLoad: true);
+            return;
+        }
+
+        Navigation.NavigateTo(string.IsNullOrWhiteSpace(ReturnUrl) ? "/" : ReturnUrl, forceLoad: true);
+    }
+
+    private sealed class LoginInput
+    {
+        [Required(ErrorMessage = "Email is required.")]
+        [EmailAddress(ErrorMessage = "Enter a valid email address.")]
+        public string Email { get; set; } = string.Empty;
+
+        [Required(ErrorMessage = "Password is required.")]
+        public string Password { get; set; } = string.Empty;
+    }
+}

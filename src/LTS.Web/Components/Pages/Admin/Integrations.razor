@@ -1,0 +1,353 @@
+@page "/{CountryCode}/admin/integrations"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@inherits CountryPageBase
+@using LTS.Application.Integration
+@inject IIntegrationAdminService Admin
+@inject ISnackbar Snackbar
+@inject IDialogService Dialogs
+
+<PageTitle>Integrations · LTS</PageTitle>
+
+@if (!Ready)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+}
+else
+{
+    <MudText Typo="Typo.h5" Class="mb-1">Integrations</MudText>
+    <MudText Typo="Typo.body2" Class="mud-text-secondary mb-4">
+        LTS pulls from each country's systems on a schedule and translates their status codes into
+        the standard LTS statuses. Changing what a code means is an edit here, not a release.
+    </MudText>
+
+    <MudTabs Elevation="1" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-4">
+        <MudTabPanel Text="Sources" Icon="@Icons.Material.Filled.Cloud">
+            @if (_sources.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info">
+                    No integration source is configured for @Country.Current!.Name yet.
+                </MudAlert>
+            }
+            else
+            {
+                <MudTable Items="_sources" Dense="true" Hover="true" Elevation="0">
+                    <HeaderContent>
+                        <MudTh>Name</MudTh>
+                        <MudTh>Kind</MudTh>
+                        <MudTh>Adapter</MudTh>
+                        <MudTh>Every</MudTh>
+                        <MudTh>Mappings</MudTh>
+                        <MudTh>Last run</MudTh>
+                        <MudTh>Active</MudTh>
+                        <MudTh></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>@context.Name</MudTd>
+                        <MudTd>@context.Kind</MudTd>
+                        <MudTd>
+                            @context.AdapterKey
+                            @if (context.AdapterMissing)
+                            {
+                                <MudTooltip Text="No adapter is registered for this key, so polls will fail.">
+                                    <MudIcon Icon="@Icons.Material.Filled.Warning" Color="Color.Warning" Size="Size.Small" />
+                                </MudTooltip>
+                            }
+                        </MudTd>
+                        <MudTd>@context.PollIntervalMinutes min</MudTd>
+                        <MudTd>@context.MappingCount</MudTd>
+                        <MudTd>@(context.LastRunAt?.ToString("yyyy-MM-dd HH:mm") ?? "Never")</MudTd>
+                        <MudTd>
+                            <MudIcon Icon="@(context.IsActive ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
+                                     Color="@(context.IsActive ? Color.Success : Color.Default)" Size="Size.Small" />
+                        </MudTd>
+                        <MudTd>
+                            <MudStack Row="true" Spacing="0">
+                                <MudTooltip Text="Show status mappings">
+                                    <MudIconButton Icon="@Icons.Material.Filled.SwapHoriz" Size="Size.Small"
+                                                   OnClick="() => SelectSourceAsync(context.Id)" />
+                                </MudTooltip>
+                                @if (CanEdit)
+                                {
+                                    <MudTooltip Text="Run now">
+                                        <MudIconButton Icon="@Icons.Material.Filled.PlayArrow" Size="Size.Small"
+                                                       Color="Color.Primary" Disabled="_running"
+                                                       OnClick="() => RunNowAsync(context.Id)" />
+                                    </MudTooltip>
+                                }
+                            </MudStack>
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        </MudTabPanel>
+
+        <MudTabPanel Text="Status mappings" Icon="@Icons.Material.Filled.SwapHoriz">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3" Wrap="Wrap.Wrap">
+                <MudSelect T="int?" Value="_selectedSourceId" ValueChanged="SelectSourceAsync" Label="Source"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Style="max-width: 340px;">
+                    @foreach (var source in _sources)
+                    {
+                        <MudSelectItem T="int?" Value="@source.Id">@source.Name</MudSelectItem>
+                    }
+                </MudSelect>
+                <MudSpacer />
+                @if (CanEdit && _selectedSourceId is not null)
+                {
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                               OnClick="() => EditMappingAsync(null)">
+                        Add mapping
+                    </MudButton>
+                }
+            </MudStack>
+
+            @if (_selectedSourceId is null)
+            {
+                <MudAlert Severity="Severity.Info">Choose a source to see what its codes mean in LTS.</MudAlert>
+            }
+            else
+            {
+                <MudTable Items="_mappings" Dense="true" Hover="true" Elevation="0">
+                    <HeaderContent>
+                        <MudTh>Source code</MudTh>
+                        <MudTh>Meaning in the source system</MudTh>
+                        <MudTh>LTS status</MudTh>
+                        <MudTh>Active</MudTh>
+                        <MudTh></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd><span class="mono">@context.RawCode</span></MudTd>
+                        <MudTd>@context.RawDescription</MudTd>
+                        <MudTd>
+                            @if (context.IsIgnored)
+                            {
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text">Ignored</MudChip>
+                            }
+                            else if (context.MilestoneType is { } type)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Text">
+                                    @MilestoneCatalog.DisplayName(type)
+                                </MudChip>
+                            }
+                        </MudTd>
+                        <MudTd>
+                            <MudIcon Icon="@(context.IsActive ? Icons.Material.Filled.CheckCircle : Icons.Material.Filled.Cancel)"
+                                     Color="@(context.IsActive ? Color.Success : Color.Default)" Size="Size.Small" />
+                        </MudTd>
+                        <MudTd>
+                            @if (CanEdit)
+                            {
+                                <MudStack Row="true" Spacing="0">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
+                                                   OnClick="() => EditMappingAsync(context)" />
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error"
+                                                   OnClick="() => DeleteMappingAsync(context)" />
+                                </MudStack>
+                            }
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+
+            @if (_unmapped.Count > 0)
+            {
+                <MudAlert Severity="Severity.Warning" Class="mt-4">
+                    <MudText Typo="Typo.subtitle2" Class="mb-1">Codes arriving with no mapping</MudText>
+                    <MudText Typo="Typo.body2" Class="mb-2">
+                        These were sent by a source and dropped because LTS does not know what they mean.
+                    </MudText>
+                    <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+                        @* The loop variable must not be called "code": Razor would read
+                           "@code.RawCode" as the @code directive. *@
+                        @foreach (var unmapped in _unmapped)
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined"
+                                       OnClick="() => MapUnmappedAsync(unmapped)">
+                                @unmapped.RawCode (@unmapped.Occurrences×) — @unmapped.SourceName
+                            </MudButton>
+                        }
+                    </MudStack>
+                </MudAlert>
+            }
+        </MudTabPanel>
+
+        <MudTabPanel Text="Run monitor" Icon="@Icons.Material.Filled.Monitor">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                    The most recent polls for @Country.Current!.Name.
+                </MudText>
+                <MudSpacer />
+                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync">
+                    Refresh
+                </MudButton>
+            </MudStack>
+
+            <MudTable Items="_runs" Dense="true" Hover="true" Elevation="0">
+                <HeaderContent>
+                    <MudTh>Started</MudTh>
+                    <MudTh>Source</MudTh>
+                    <MudTh>Status</MudTh>
+                    <MudTh>Duration</MudTh>
+                    <MudTh>Received</MudTh>
+                    <MudTh>Processed</MudTh>
+                    <MudTh>Failed</MudTh>
+                    <MudTh>Shipments +/~</MudTh>
+                    <MudTh>Dates applied</MudTh>
+                    <MudTh>Unmapped</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd>@context.StartedAt.ToString("yyyy-MM-dd HH:mm:ss")</MudTd>
+                    <MudTd>@context.SourceName</MudTd>
+                    <MudTd>
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Filled" Color="@RunColour(context.Status)">
+                            @context.Status
+                        </MudChip>
+                        @if (!string.IsNullOrEmpty(context.ErrorMessage))
+                        {
+                            <MudTooltip Text="@context.ErrorMessage">
+                                <MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" Color="Color.Error" />
+                            </MudTooltip>
+                        }
+                    </MudTd>
+                    <MudTd>@(context.Duration?.TotalSeconds.ToString("N1") ?? "—") s</MudTd>
+                    <MudTd>@context.MessagesReceived</MudTd>
+                    <MudTd>@context.MessagesProcessed</MudTd>
+                    <MudTd>@context.MessagesFailed</MudTd>
+                    <MudTd>@context.ShipmentsCreated / @context.ShipmentsUpdated</MudTd>
+                    <MudTd>@context.MilestonesApplied</MudTd>
+                    <MudTd>@context.UnmappedCodeCount</MudTd>
+                </RowTemplate>
+                <NoRecordsContent>
+                    <MudText Typo="Typo.body2" Class="pa-4">No polls have run yet.</MudText>
+                </NoRecordsContent>
+            </MudTable>
+        </MudTabPanel>
+    </MudTabs>
+}
+
+@code {
+    protected override string PageKey => PageKeys.AdminIntegrations;
+
+    private IReadOnlyList<IntegrationSourceRow> _sources = [];
+    private IReadOnlyList<StatusMappingRow> _mappings = [];
+    private IReadOnlyList<IntegrationRunRow> _runs = [];
+    private IReadOnlyList<UnmappedCode> _unmapped = [];
+    private int? _selectedSourceId;
+    private bool _running;
+
+    protected override Task OnCountryReadyAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        _sources = await Admin.GetSourcesAsync(CountryId);
+        _runs = await Admin.GetRunsAsync(CountryId);
+        _unmapped = await Admin.GetUnmappedCodesAsync(CountryId);
+
+        _selectedSourceId ??= _sources.FirstOrDefault()?.Id;
+
+        if (_selectedSourceId is { } sourceId)
+        {
+            _mappings = await Admin.GetMappingsAsync(sourceId);
+        }
+    }
+
+    private async Task SelectSourceAsync(int? sourceId)
+    {
+        _selectedSourceId = sourceId;
+        _mappings = sourceId is { } id ? await Admin.GetMappingsAsync(id) : [];
+    }
+
+    private async Task RunNowAsync(int sourceId)
+    {
+        _running = true;
+
+        try
+        {
+            var run = await Admin.RunNowAsync(sourceId);
+
+            Snackbar.Add(
+                $"{run.SourceName}: {run.Status}. {run.MilestonesApplied} date(s) applied, " +
+                $"{run.ShipmentsCreated} shipment(s) created, {run.UnmappedCodeCount} unmapped code(s).",
+                run.Status == IntegrationRunStatus.Failed ? Severity.Error : Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+        finally
+        {
+            _running = false;
+            await LoadAsync();
+        }
+    }
+
+    private Task MapUnmappedAsync(UnmappedCode code)
+    {
+        _selectedSourceId = code.IntegrationSourceId;
+
+        return EditMappingAsync(new StatusMappingRow
+        {
+            Id = 0,
+            IntegrationSourceId = code.IntegrationSourceId,
+            RawCode = code.RawCode,
+            IsActive = true
+        });
+    }
+
+    private async Task EditMappingAsync(StatusMappingRow? row)
+    {
+        if (_selectedSourceId is not { } sourceId)
+        {
+            return;
+        }
+
+        var parameters = new DialogParameters<StatusMappingDialog>
+        {
+            { x => x.Row, row },
+            { x => x.IntegrationSourceId, row?.IntegrationSourceId ?? sourceId }
+        };
+
+        var dialog = await Dialogs.ShowAsync<StatusMappingDialog>(
+            row is null or { Id: 0 } ? "Add status mapping" : "Edit status mapping", parameters);
+
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not StatusMappingInput input)
+        {
+            return;
+        }
+
+        try
+        {
+            await Admin.SaveMappingAsync(input);
+            Snackbar.Add("Status mapping saved. The next poll will use it.", Severity.Success);
+            await LoadAsync();
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+
+    private async Task DeleteMappingAsync(StatusMappingRow row)
+    {
+        var confirmed = await Dialogs.ShowMessageBox(
+            "Delete status mapping",
+            $"Delete the mapping for '{row.RawCode}'? The source will keep sending it and LTS will start ignoring it.",
+            yesText: "Delete", cancelText: "Cancel");
+
+        if (confirmed != true)
+        {
+            return;
+        }
+
+        await Admin.DeleteMappingAsync(row.Id);
+        await LoadAsync();
+    }
+
+    private static Color RunColour(IntegrationRunStatus status) => status switch
+    {
+        IntegrationRunStatus.Succeeded => Color.Success,
+        IntegrationRunStatus.PartiallySucceeded => Color.Warning,
+        IntegrationRunStatus.Failed => Color.Error,
+        _ => Color.Info
+    };
+}

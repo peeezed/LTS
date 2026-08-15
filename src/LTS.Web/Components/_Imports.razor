@@ -1,0 +1,28 @@
+@using System.Net.Http
+@using System.Net.Http.Json
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.AspNetCore.Components.Web
+@using static Microsoft.AspNetCore.Components.Web.RenderMode
+@using Microsoft.AspNetCore.Components.Web.Virtualization
+@using Microsoft.JSInterop
+@using MudBlazor
+@using LTS.Application.Reference
+@using LTS.Application.Security
+@using LTS.Application.Tracking
+@using LTS.Domain.Enums
+@using LTS.Domain.Kpi
+@using LTS.Domain.Milestones
+@using LTS.Domain.Security
+@using LTS.Web
+@using LTS.Web.Components
+@using LTS.Web.Components.Layout
+@using LTS.Web.Components.Shared
+@using LTS.Web.State
+
+@* Every page requires a signed-in account. Pages that must be reachable without one - the sign-in
+   page itself, sign-out and the error page - opt out with [AllowAnonymous]. Applying it here
+   rather than page by page means a new page is private by default, never public by omission. *@
+@attribute [Authorize]

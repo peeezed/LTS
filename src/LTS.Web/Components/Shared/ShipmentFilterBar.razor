@@ -1,0 +1,145 @@
+@inject IReferenceDataService Reference
+
+<MudPaper Elevation="0" Class="pa-3 mb-3" Outlined="true">
+    <MudGrid Spacing="2" Justify="Justify.FlexStart">
+        <MudItem xs="12" md="3">
+            <MudTextField T="string" @bind-Value="_search" Immediate="false" DebounceInterval="400"
+                          OnDebounceIntervalElapsed="ApplyAsync"
+                          Label="Search" Placeholder="Reference, invoice or transfer no"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" />
+        </MudItem>
+
+        <MudItem xs="12" sm="6" md="2">
+            <MudSelect T="TrackingStatus" SelectedValues="_statuses" MultiSelection="true"
+                       Label="Status" Variant="Variant.Outlined" Margin="Margin.Dense"
+                       SelectedValuesChanged="OnStatusesChanged" Clearable="true">
+                @foreach (var status in Statuses)
+                {
+                    <MudSelectItem T="TrackingStatus" Value="@status">@status.ToDisplay()</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+
+        <MudItem xs="12" sm="6" md="2">
+            <MudSelect T="PerformanceStatus" SelectedValues="_performances" MultiSelection="true"
+                       Label="Performance" Variant="Variant.Outlined" Margin="Margin.Dense"
+                       SelectedValuesChanged="OnPerformancesChanged" Clearable="true">
+                @foreach (var performance in Performances)
+                {
+                    <MudSelectItem T="PerformanceStatus" Value="@performance">@performance.ToDisplay()</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+
+        @* An external user only ever sees their own shipments, so filtering by partner is noise. *@
+        @if (!Permissions.IsPartnerScoped)
+        {
+            <MudItem xs="12" sm="6" md="2">
+                <MudSelect T="int?" Value="_logisticsCompanyId" Label="Logistics company"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true"
+                           ValueChanged="OnLogisticsCompanyChanged">
+                    @foreach (var partner in _logisticsCompanies)
+                    {
+                        <MudSelectItem T="int?" Value="@partner.Id">@partner.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+
+            <MudItem xs="12" sm="6" md="2">
+                <MudSelect T="int?" Value="_brokerId" Label="Broker"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true"
+                           ValueChanged="OnBrokerChanged">
+                    @foreach (var partner in _brokers)
+                    {
+                        <MudSelectItem T="int?" Value="@partner.Id">@partner.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+        }
+
+        <MudItem xs="12" md="1" Class="d-flex align-center">
+            <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="ClearAsync">Clear</MudButton>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired]
+    public UserPermissions Permissions { get; set; } = UserPermissions.None;
+
+    [Parameter, EditorRequired]
+    public EventCallback<ShipmentFilter> FilterChanged { get; set; }
+
+    /// <summary>Fixes the "in transit only" flag for pages that are defined by it.</summary>
+    [Parameter]
+    public bool OnlyInTransit { get; set; }
+
+    private string? _search;
+    private IEnumerable<TrackingStatus> _statuses = [];
+    private IEnumerable<PerformanceStatus> _performances = [];
+    private int? _logisticsCompanyId;
+    private int? _brokerId;
+
+    private IReadOnlyList<PartnerDto> _logisticsCompanies = [];
+    private IReadOnlyList<PartnerDto> _brokers = [];
+
+    private static readonly TrackingStatus[] Statuses = Enum.GetValues<TrackingStatus>();
+    private static readonly PerformanceStatus[] Performances = Enum.GetValues<PerformanceStatus>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Permissions.IsPartnerScoped)
+        {
+            return;
+        }
+
+        _logisticsCompanies = await Reference.GetPartnersAsync(PartnerType.LogisticsCompany);
+        _brokers = await Reference.GetPartnersAsync(PartnerType.Broker);
+    }
+
+    private Task OnStatusesChanged(IEnumerable<TrackingStatus> values)
+    {
+        _statuses = values;
+        return ApplyAsync();
+    }
+
+    private Task OnPerformancesChanged(IEnumerable<PerformanceStatus> values)
+    {
+        _performances = values;
+        return ApplyAsync();
+    }
+
+    private Task OnLogisticsCompanyChanged(int? value)
+    {
+        _logisticsCompanyId = value;
+        return ApplyAsync();
+    }
+
+    private Task OnBrokerChanged(int? value)
+    {
+        _brokerId = value;
+        return ApplyAsync();
+    }
+
+    private Task ApplyAsync() => FilterChanged.InvokeAsync(new ShipmentFilter
+    {
+        Search = _search,
+        Statuses = _statuses.ToList(),
+        Performances = _performances.ToList(),
+        LogisticsCompanyId = _logisticsCompanyId,
+        BrokerId = _brokerId,
+        OnlyInTransit = OnlyInTransit
+    });
+
+    private Task ClearAsync()
+    {
+        _search = null;
+        _statuses = [];
+        _performances = [];
+        _logisticsCompanyId = null;
+        _brokerId = null;
+
+        return ApplyAsync();
+    }
+}
