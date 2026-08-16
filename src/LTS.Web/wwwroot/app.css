@@ -109,3 +109,10 @@ html, body {
     right: 0.75rem;
     top: 0.5rem;
 }
+
+/* The Shipment Details grid's date columns: wide enough for "yyyy-MM-dd" plus the clear and
+   calendar icons. A class (rather than an inline Style on MudDatePicker) so the picker's own
+   popover keeps its natural width instead of shrinking to match the input. */
+.shipment-date-picker.mud-picker {
+    width: 230px;
+}

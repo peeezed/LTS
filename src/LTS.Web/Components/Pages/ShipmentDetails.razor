@@ -23,25 +23,6 @@ else
         </MudText>
     </MudStack>
 
-    <MudPaper Elevation="0" Outlined="true" Class="pa-3 mb-4">
-        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-            <MudTextField T="string" @bind-Value="_reference" Label="Reference or invoice number"
-                          Variant="Variant.Outlined" Margin="Margin.Dense" Immediate="false"
-                          OnKeyUp="OnSearchKeyAsync" Style="max-width: 380px;" Clearable="true" />
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="LoadShipmentAsync"
-                       StartIcon="@Icons.Material.Filled.Search" Disabled="_busy">
-                Open
-            </MudButton>
-        </MudStack>
-    </MudPaper>
-
-    @if (_notFound)
-    {
-        <MudAlert Severity="Severity.Warning" Class="mb-4">
-            No shipment with that reference or invoice number exists in @Country.Current!.Name, or it is not one of yours.
-        </MudAlert>
-    }
-
     @if (_errors.Count > 0)
     {
         <MudAlert Severity="Severity.Error" Class="mb-4">
@@ -53,6 +34,83 @@ else
                 }
             </ul>
         </MudAlert>
+    }
+
+    @if (_notFound)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mb-4">
+            No shipment with that reference exists in @Country.Current!.Name, or it is not one of yours.
+        </MudAlert>
+    }
+
+    <MudDataGrid T="ShipmentRow" @ref="_grid" ServerData="LoadGridAsync" Dense="true" Hover="true" Striped="true"
+                 Filterable="false" SortMode="SortMode.Single" RowsPerPage="25" Elevation="1"
+                 FixedHeader="true" Height="calc(100vh - 380px)" Class="mb-3">
+        <Columns>
+            <TemplateColumn Title="Reference No" SortBy="x => x.ReferenceNo">
+                <CellTemplate>
+                    <MudLink Underline="Underline.Hover" Style="cursor: pointer;"
+                             OnClick="@(() => OpenAsync(context.Item.ReferenceNo))">
+                        @context.Item.ReferenceNo
+                    </MudLink>
+                </CellTemplate>
+            </TemplateColumn>
+            <PropertyColumn Property="x => x.InvoiceNo" Title="Invoice No" />
+            <PropertyColumn Property="x => x.InvoiceDate" Title="Invoice Date" Format="yyyy-MM-dd" />
+
+            <TemplateColumn Title="Status" SortBy="x => x.CurrentStatus">
+                <CellTemplate><StatusChip Status="context.Item.CurrentStatus" /></CellTemplate>
+            </TemplateColumn>
+
+            @foreach (var milestone in VisibleShipmentMilestones)
+            {
+                <TemplateColumn Title="@milestone.DisplayName" Sortable="false"
+                                 HeaderStyle="min-width: 230px;" CellStyle="min-width: 230px;">
+                    <CellTemplate>
+                        <MudDatePicker Date="@GridGet(context.Item, milestone.Type)"
+                                       DateChanged="@(date => GridSet(context.Item, milestone.Type, date))"
+                                       ReadOnly="@(!Permissions.CanEditMilestone(milestone.Type, CountryId))"
+                                       Variant="Variant.Outlined" Margin="Margin.Dense"
+                                       DateFormat="yyyy-MM-dd" Clearable="true"
+                                       Class="shipment-date-picker" />
+                    </CellTemplate>
+                </TemplateColumn>
+            }
+
+            <TemplateColumn Title="" Sortable="false">
+                <CellTemplate>
+                    <MudTooltip Text="View full details">
+                        <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Size="Size.Small"
+                                       OnClick="@(() => OpenAsync(context.Item.ReferenceNo))" />
+                    </MudTooltip>
+                </CellTemplate>
+            </TemplateColumn>
+        </Columns>
+        <PagerContent>
+            <MudDataGridPager T="ShipmentRow" PageSizeOptions="new[] { 25, 50, 100 }" />
+        </PagerContent>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2" Class="pa-4">No shipments to show.</MudText>
+        </NoRecordsContent>
+    </MudDataGrid>
+
+    @if (CanEdit)
+    {
+        <MudStack Row="true" Spacing="2" Class="mb-4">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync"
+                       StartIcon="@Icons.Material.Filled.Save" Disabled="@(_busy || !HasChanges)">
+                Save dates
+            </MudButton>
+            <MudButton Variant="Variant.Text" OnClick="ResetChanges" Disabled="@(!HasChanges)">
+                Discard changes
+            </MudButton>
+            @if (HasChanges)
+            {
+                <MudText Typo="Typo.body2" Class="mud-text-secondary align-self-center">
+                    @_edits.Count unsaved change@(_edits.Count == 1 ? "" : "s")
+                </MudText>
+            }
+        </MudStack>
     }
 
     @if (_shipment is not null)
@@ -91,36 +149,6 @@ else
             </MudGrid>
         </MudPaper>
 
-        <MudPaper Elevation="1" Class="pa-4 mb-4">
-            <MudText Typo="Typo.h6" Class="mb-1">Shipment dates</MudText>
-            <MudText Typo="Typo.body2" Class="mud-text-secondary mb-3">
-                Only the dates your account is responsible for are shown.
-            </MudText>
-
-            @if (VisibleShipmentMilestones.Count == 0)
-            {
-                <MudAlert Severity="Severity.Info" Dense="true">
-                    None of the shipment-level dates belong to your account.
-                </MudAlert>
-            }
-            else
-            {
-                <MudGrid Spacing="2">
-                    @foreach (var milestone in VisibleShipmentMilestones)
-                    {
-                        <MudItem xs="12" sm="6" md="3">
-                            <MudDatePicker Label="@milestone.DisplayName"
-                                           Date="@Get(ShipmentKey, milestone.Type)"
-                                           DateChanged="@(date => Set(ShipmentKey, milestone.Type, date))"
-                                           ReadOnly="@(!Permissions.CanEditMilestone(milestone.Type, CountryId))"
-                                           Variant="Variant.Outlined" Margin="Margin.Dense"
-                                           DateFormat="yyyy-MM-dd" Clearable="true" />
-                        </MudItem>
-                    }
-                </MudGrid>
-            }
-        </MudPaper>
-
         @if (VisibleTransferMilestones.Count > 0 && _shipment.Transfers.Count > 0)
         {
             <MudPaper Elevation="1" Class="pa-4 mb-4">
@@ -138,8 +166,8 @@ else
                                 {
                                     <MudItem xs="12" sm="6" md="3">
                                         <MudDatePicker Label="@milestone.DisplayName"
-                                                       Date="@Get(transfer.TransferNo, milestone.Type)"
-                                                       DateChanged="@(date => Set(transfer.TransferNo, milestone.Type, date))"
+                                                       Date="@TransferGet(transfer.TransferNo, milestone.Type)"
+                                                       DateChanged="@(date => TransferSet(transfer.TransferNo, milestone.Type, date))"
                                                        ReadOnly="@(!Permissions.CanEditMilestone(milestone.Type, CountryId))"
                                                        Variant="Variant.Outlined" Margin="Margin.Dense"
                                                        DateFormat="yyyy-MM-dd" Clearable="true" />
@@ -151,25 +179,6 @@ else
                 }
             </MudPaper>
         }
-
-        @if (CanEdit)
-        {
-            <MudStack Row="true" Spacing="2">
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync"
-                           StartIcon="@Icons.Material.Filled.Save" Disabled="@(_busy || !HasChanges)">
-                    Save dates
-                </MudButton>
-                <MudButton Variant="Variant.Text" OnClick="ResetChanges" Disabled="@(!HasChanges)">
-                    Discard changes
-                </MudButton>
-                @if (HasChanges)
-                {
-                    <MudText Typo="Typo.body2" Class="mud-text-secondary align-self-center">
-                        @_edits.Count unsaved change@(_edits.Count == 1 ? "" : "s")
-                    </MudText>
-                }
-            </MudStack>
-        }
     }
 }
 </AppShell>
@@ -177,19 +186,19 @@ else
 @code {
     protected override string PageKey => PageKeys.ShipmentDetails;
 
-    /// <summary>Key used for the shipment's own dates in the edit dictionary.</summary>
-    private const string ShipmentKey = "#shipment";
-
     [SupplyParameterFromQuery(Name = "reference")]
     private string? ReferenceFromQuery { get; set; }
 
+    private MudDataGrid<ShipmentRow>? _grid;
     private string? _reference;
     private ShipmentDetail? _shipment;
     private bool _notFound;
     private bool _busy;
 
-    // Pending edits, keyed by entity (the shipment, or a transfer number) and milestone.
-    private readonly Dictionary<(string Entity, MilestoneType Type), DateOnly?> _edits = [];
+    // Pending edits, keyed by reference number (shipment milestones) or transfer number
+    // (transfer milestones) and the milestone type. Independent of the grid page or whichever
+    // shipment happens to be open below, so edits survive paging and opening other shipments.
+    private readonly Dictionary<(string Reference, MilestoneType Type), DateOnly?> _edits = [];
     private List<MilestoneError> _errors = [];
 
     private bool HasChanges => _edits.Count > 0;
@@ -202,69 +211,99 @@ else
 
     protected override async Task OnCountryReadyAsync()
     {
+        if (_grid is not null)
+        {
+            await _grid.ReloadServerData();
+        }
+
         if (!string.IsNullOrWhiteSpace(ReferenceFromQuery))
         {
-            _reference = ReferenceFromQuery;
-            await LoadShipmentAsync();
+            await OpenAsync(ReferenceFromQuery);
         }
     }
 
-    private async Task OnSearchKeyAsync(KeyboardEventArgs args)
+    private async Task<GridData<ShipmentRow>> LoadGridAsync(GridState<ShipmentRow> state)
     {
-        if (args.Key is "Enter" or "NumpadEnter")
-        {
-            await LoadShipmentAsync();
-        }
+        var sort = state.SortDefinitions.FirstOrDefault();
+
+        var result = await Query.GetShipmentsAsync(
+            CountryId,
+            Permissions,
+            new ShipmentFilter(),
+            new GridRequest(state.Page, state.PageSize, sort?.SortBy, sort?.Descending ?? false));
+
+        return new GridData<ShipmentRow> { Items = result.Items, TotalItems = result.TotalCount };
     }
 
-    private async Task LoadShipmentAsync()
+    private async Task OpenAsync(string referenceNo)
     {
-        if (string.IsNullOrWhiteSpace(_reference))
-        {
-            return;
-        }
-
+        _reference = referenceNo;
         _busy = true;
-        _errors = [];
-        _edits.Clear();
 
-        _shipment = await Query.GetShipmentDetailAsync(CountryId, Permissions, _reference);
+        _shipment = await Query.GetShipmentDetailAsync(CountryId, Permissions, referenceNo);
         _notFound = _shipment is null;
         _busy = false;
     }
 
-    /// <summary>Current value for a field: the pending edit if there is one, otherwise what was loaded.</summary>
-    private DateTime? Get(string entity, MilestoneType type)
+    /// <summary>Current value for a shipment-level field: the pending edit, or what the grid loaded.</summary>
+    private DateTime? GridGet(ShipmentRow row, MilestoneType type)
     {
-        if (_edits.TryGetValue((entity, type), out var edited))
+        if (_edits.TryGetValue((row.ReferenceNo, type), out var edited))
         {
             return edited?.ToDateTime(TimeOnly.MinValue);
         }
 
-        var stored = entity == ShipmentKey
-            ? _shipment?.Milestones.GetValueOrDefault(type)
-            : _shipment?.Transfers.FirstOrDefault(t => t.TransferNo == entity)?.Milestones.GetValueOrDefault(type);
-
-        return stored?.ToDateTime(TimeOnly.MinValue);
+        return StoredDate(row, type)?.ToDateTime(TimeOnly.MinValue);
     }
 
-    private void Set(string entity, MilestoneType type, DateTime? value)
+    private void GridSet(ShipmentRow row, MilestoneType type, DateTime? value)
     {
         var newValue = value is null ? (DateOnly?)null : DateOnly.FromDateTime(value.Value);
 
-        var stored = entity == ShipmentKey
-            ? _shipment?.Milestones.GetValueOrDefault(type)
-            : _shipment?.Transfers.FirstOrDefault(t => t.TransferNo == entity)?.Milestones.GetValueOrDefault(type);
-
-        // Setting a field back to its stored value is not a change, so the Save button honestly
-        // reflects whether there is anything to save.
-        if (stored == newValue)
+        if (StoredDate(row, type) == newValue)
         {
-            _edits.Remove((entity, type));
+            _edits.Remove((row.ReferenceNo, type));
             return;
         }
 
-        _edits[(entity, type)] = newValue;
+        _edits[(row.ReferenceNo, type)] = newValue;
+    }
+
+    private static DateOnly? StoredDate(ShipmentRow row, MilestoneType type) => type switch
+    {
+        MilestoneType.Loading => row.LoadingDate,
+        MilestoneType.DepartureCustomsClearance => row.DepartureCustomsClearanceDate,
+        MilestoneType.Departure => row.DepartureDate,
+        MilestoneType.ArrivalToTargetCountry => row.ArrivalToTargetCountryDate,
+        MilestoneType.CustomsStart => row.CustomsStartDate,
+        MilestoneType.CustomsEnd => row.CustomsEndDate,
+        MilestoneType.CrossdockArrival => row.CrossdockArrivalDate,
+        _ => null
+    };
+
+    private DateTime? TransferGet(string transferNo, MilestoneType type)
+    {
+        if (_edits.TryGetValue((transferNo, type), out var edited))
+        {
+            return edited?.ToDateTime(TimeOnly.MinValue);
+        }
+
+        var stored = _shipment?.Transfers.FirstOrDefault(t => t.TransferNo == transferNo)?.Milestones.GetValueOrDefault(type);
+        return stored?.ToDateTime(TimeOnly.MinValue);
+    }
+
+    private void TransferSet(string transferNo, MilestoneType type, DateTime? value)
+    {
+        var newValue = value is null ? (DateOnly?)null : DateOnly.FromDateTime(value.Value);
+        var stored = _shipment?.Transfers.FirstOrDefault(t => t.TransferNo == transferNo)?.Milestones.GetValueOrDefault(type);
+
+        if (stored == newValue)
+        {
+            _edits.Remove((transferNo, type));
+            return;
+        }
+
+        _edits[(transferNo, type)] = newValue;
     }
 
     private void ResetChanges()
@@ -275,7 +314,7 @@ else
 
     private async Task SaveAsync()
     {
-        if (_shipment is null || _edits.Count == 0)
+        if (_edits.Count == 0)
         {
             return;
         }
@@ -283,10 +322,7 @@ else
         _busy = true;
         _errors = [];
 
-        var changes = _edits.Select(edit => new MilestoneChange(
-            edit.Key.Entity == ShipmentKey ? _shipment.ReferenceNo : edit.Key.Entity,
-            edit.Key.Type,
-            edit.Value));
+        var changes = _edits.Select(edit => new MilestoneChange(edit.Key.Reference, edit.Key.Type, edit.Value));
 
         var result = await Milestones.ApplyAsync(changes, MilestoneApplyOptions.Manual, Permissions);
         _errors = [.. result.Errors];
@@ -304,7 +340,15 @@ else
         _edits.Clear();
         _busy = false;
 
+        if (_grid is not null)
+        {
+            await _grid.ReloadServerData();
+        }
+
         // Reload so status, performance and the transfer rollups reflect what was just written.
-        _shipment = await Query.GetShipmentDetailAsync(CountryId, Permissions, _shipment.ReferenceNo);
+        if (_shipment is not null)
+        {
+            _shipment = await Query.GetShipmentDetailAsync(CountryId, Permissions, _shipment.ReferenceNo);
+        }
     }
 }
