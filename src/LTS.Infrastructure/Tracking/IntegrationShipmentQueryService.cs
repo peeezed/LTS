@@ -42,13 +42,15 @@ public sealed class IntegrationShipmentQueryService(
 
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
 
-        var customerCode = await CustomerCodeForAsync(db, countryId, cancellationToken);
-        if (customerCode is null)
+        var countryInfo = await CountryInfoForAsync(db, countryId, cancellationToken);
+        if (countryInfo is not { } info)
         {
             return PagedResult<ShipmentRow>.Empty;
         }
 
-        var query = db.Shipments.AsNoTracking().Where(s => s.CustomerCode == customerCode);
+        await BackfillArrivalCountryAsync(db, info.CustomerCode, info.CountryName, cancellationToken);
+
+        var query = db.Shipments.AsNoTracking().Where(s => s.CustomerCode == info.CustomerCode);
         query = ApplyPartnerFilter(query, permissions, restricted, partnerName);
         query = ApplyFilter(query, filter);
 
@@ -121,8 +123,8 @@ public sealed class IntegrationShipmentQueryService(
 
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
 
-        var customerCode = await CustomerCodeForAsync(db, countryId, cancellationToken);
-        if (customerCode is null)
+        var countryInfo = await CountryInfoForAsync(db, countryId, cancellationToken);
+        if (countryInfo is not { } info)
         {
             return PagedResult<TransferRow>.Empty;
         }
@@ -130,7 +132,7 @@ public sealed class IntegrationShipmentQueryService(
         var query =
             from t in db.ShipmentTransfers.AsNoTracking()
             join s in db.Shipments.AsNoTracking() on t.ReferenceNo equals s.ReferenceNo
-            where s.CustomerCode == customerCode
+            where s.CustomerCode == info.CustomerCode
             select new { Transfer = t, Shipment = s };
 
         if (restricted)
@@ -252,14 +254,16 @@ public sealed class IntegrationShipmentQueryService(
 
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
 
-        var customerCode = await CustomerCodeForAsync(db, countryId, cancellationToken);
-        if (customerCode is null)
+        var countryInfo = await CountryInfoForAsync(db, countryId, cancellationToken);
+        if (countryInfo is not { } info)
         {
             return null;
         }
 
+        await BackfillArrivalCountryAsync(db, info.CustomerCode, info.CountryName, cancellationToken);
+
         var shipmentQuery = db.Shipments.AsNoTracking()
-            .Where(s => s.CustomerCode == customerCode && (s.ReferenceNo == reference || s.InvoiceNo == reference));
+            .Where(s => s.CustomerCode == info.CustomerCode && (s.ReferenceNo == reference || s.InvoiceNo == reference));
         shipmentQuery = ApplyPartnerFilter(shipmentQuery, permissions, restricted, partnerName);
 
         var shipment = await shipmentQuery.FirstOrDefaultAsync(cancellationToken);
@@ -362,8 +366,8 @@ public sealed class IntegrationShipmentQueryService(
 
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
 
-        var customerCode = await CustomerCodeForAsync(db, countryId, cancellationToken);
-        if (customerCode is null)
+        var countryInfo = await CountryInfoForAsync(db, countryId, cancellationToken);
+        if (countryInfo is not { } info)
         {
             return InTransitSummary.Empty;
         }
@@ -373,7 +377,7 @@ public sealed class IntegrationShipmentQueryService(
         // store leg the way the old database's in-transit query does.
         var accepted = TrackingStatus.Accepted.ToDisplay();
         var shipmentsQuery = db.Shipments.AsNoTracking()
-            .Where(s => s.CustomerCode == customerCode && s.CurrentStatus != accepted);
+            .Where(s => s.CustomerCode == info.CustomerCode && s.CurrentStatus != accepted);
         shipmentsQuery = ApplyPartnerFilter(shipmentsQuery, permissions, restricted, partnerName);
 
         var shipments = await shipmentsQuery.ToListAsync(cancellationToken);
@@ -427,21 +431,36 @@ public sealed class IntegrationShipmentQueryService(
     }
 
     /// <summary>
-    /// The country's CustomerCode, which LTS_Shipments.CustomerCode is matched against to find
-    /// its shipments - LTS_Integration does not carry a country id directly on the shipment.
-    /// Null when the country has no CustomerCode set, or does not exist.
+    /// Fills in LTS_Shipments.ArrivalCountry for any shipment of this customer that doesn't have
+    /// one yet - the integration writes the seven attribute columns independently of the country
+    /// match, so a shipment can otherwise land with ArrivalCountry blank even though its country
+    /// is already known from CustomerCode. Once a row has a value, it's left alone: the receiving
+    /// country is only ever a fallback, never overwritten by a later read.
     /// </summary>
-    private static async Task<string?> CustomerCodeForAsync(
+    private static Task BackfillArrivalCountryAsync(
+        LtsIntegrationDbContext db, string customerCode, string countryName, CancellationToken cancellationToken) =>
+        db.Shipments
+            .Where(s => s.CustomerCode == customerCode && string.IsNullOrEmpty(s.ArrivalCountry))
+            .ExecuteUpdateAsync(setters => setters.SetProperty(s => s.ArrivalCountry, countryName), cancellationToken);
+
+    /// <summary>
+    /// The country's CustomerCode (which LTS_Shipments.CustomerCode is matched against to find
+    /// its shipments - LTS_Integration does not carry a country id directly on the shipment) and
+    /// its display name. Null when the country has no CustomerCode set, or does not exist.
+    /// </summary>
+    private static async Task<(string CustomerCode, string CountryName)?> CountryInfoForAsync(
         LtsIntegrationDbContext db, int countryId, CancellationToken cancellationToken)
     {
         var rawId = IntegrationCountryId.ToRawId(countryId);
 
-        var customerCode = await db.Countries.AsNoTracking()
+        var country = await db.Countries.AsNoTracking()
             .Where(c => c.Id == rawId)
-            .Select(c => c.CustomerCode)
+            .Select(c => new { c.CustomerCode, c.CountryDescription })
             .FirstOrDefaultAsync(cancellationToken);
 
-        return string.IsNullOrWhiteSpace(customerCode) ? null : customerCode;
+        return country is null || string.IsNullOrWhiteSpace(country.CustomerCode)
+            ? null
+            : (country.CustomerCode, country.CountryDescription);
     }
 
     /// <summary>
