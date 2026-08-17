@@ -20,7 +20,7 @@ namespace LTS.Infrastructure.Tracking;
 /// performance parsing, box-level rollups) is done in memory on the already-paged result.
 /// </summary>
 public sealed class IntegrationShipmentQueryService(
-    IDbContextFactory<LtsIntegrationDbContext> dbFactory, IClock clock) : IShipmentQueryService
+    IDbContextFactory<LtsIntegrationDbContext> dbFactory, LtsDbContext partnersDb, IClock clock) : IShipmentQueryService
 {
     public async Task<PagedResult<ShipmentRow>> GetShipmentsAsync(
         int countryId,
@@ -29,7 +29,13 @@ public sealed class IntegrationShipmentQueryService(
         GridRequest request,
         CancellationToken cancellationToken = default)
     {
-        if (!permissions.HasCountry(countryId) || permissions.IsPartnerScoped)
+        if (!permissions.HasCountry(countryId))
+        {
+            return PagedResult<ShipmentRow>.Empty;
+        }
+
+        var (restricted, partnerName) = await ResolvePartnerFilterAsync(permissions, cancellationToken);
+        if (restricted && partnerName is null)
         {
             return PagedResult<ShipmentRow>.Empty;
         }
@@ -42,7 +48,9 @@ public sealed class IntegrationShipmentQueryService(
             return PagedResult<ShipmentRow>.Empty;
         }
 
-        var query = ApplyFilter(db.Shipments.AsNoTracking().Where(s => s.CustomerCode == customerCode), filter);
+        var query = db.Shipments.AsNoTracking().Where(s => s.CustomerCode == customerCode);
+        query = ApplyPartnerFilter(query, permissions, restricted, partnerName);
+        query = ApplyFilter(query, filter);
 
         var total = await query.CountAsync(cancellationToken);
 
@@ -100,7 +108,13 @@ public sealed class IntegrationShipmentQueryService(
         GridRequest request,
         CancellationToken cancellationToken = default)
     {
-        if (!permissions.HasCountry(countryId) || permissions.IsPartnerScoped)
+        if (!permissions.HasCountry(countryId))
+        {
+            return PagedResult<TransferRow>.Empty;
+        }
+
+        var (restricted, partnerName) = await ResolvePartnerFilterAsync(permissions, cancellationToken);
+        if (restricted && partnerName is null)
         {
             return PagedResult<TransferRow>.Empty;
         }
@@ -118,6 +132,13 @@ public sealed class IntegrationShipmentQueryService(
             join s in db.Shipments.AsNoTracking() on t.ReferenceNo equals s.ReferenceNo
             where s.CustomerCode == customerCode
             select new { Transfer = t, Shipment = s };
+
+        if (restricted)
+        {
+            query = permissions.UserType == UserType.Broker
+                ? query.Where(x => x.Shipment.BrokerCompany == partnerName)
+                : query.Where(x => x.Shipment.LogisticsCompany == partnerName);
+        }
 
         if (!string.IsNullOrWhiteSpace(filter.Search))
         {
@@ -216,7 +237,13 @@ public sealed class IntegrationShipmentQueryService(
         string reference,
         CancellationToken cancellationToken = default)
     {
-        if (!permissions.HasCountry(countryId) || permissions.IsPartnerScoped || string.IsNullOrWhiteSpace(reference))
+        if (!permissions.HasCountry(countryId) || string.IsNullOrWhiteSpace(reference))
+        {
+            return null;
+        }
+
+        var (restricted, partnerName) = await ResolvePartnerFilterAsync(permissions, cancellationToken);
+        if (restricted && partnerName is null)
         {
             return null;
         }
@@ -231,10 +258,11 @@ public sealed class IntegrationShipmentQueryService(
             return null;
         }
 
-        var shipment = await db.Shipments.AsNoTracking()
-            .FirstOrDefaultAsync(
-                s => s.CustomerCode == customerCode && (s.ReferenceNo == reference || s.InvoiceNo == reference),
-                cancellationToken);
+        var shipmentQuery = db.Shipments.AsNoTracking()
+            .Where(s => s.CustomerCode == customerCode && (s.ReferenceNo == reference || s.InvoiceNo == reference));
+        shipmentQuery = ApplyPartnerFilter(shipmentQuery, permissions, restricted, partnerName);
+
+        var shipment = await shipmentQuery.FirstOrDefaultAsync(cancellationToken);
 
         if (shipment is null)
         {
@@ -321,7 +349,13 @@ public sealed class IntegrationShipmentQueryService(
         UserPermissions permissions,
         CancellationToken cancellationToken = default)
     {
-        if (!permissions.HasCountry(countryId) || permissions.IsPartnerScoped)
+        if (!permissions.HasCountry(countryId))
+        {
+            return InTransitSummary.Empty;
+        }
+
+        var (restricted, partnerName) = await ResolvePartnerFilterAsync(permissions, cancellationToken);
+        if (restricted && partnerName is null)
         {
             return InTransitSummary.Empty;
         }
@@ -338,9 +372,11 @@ public sealed class IntegrationShipmentQueryService(
         // LTS_Integration does not (yet) carry enough transfer-level detail here to check every
         // store leg the way the old database's in-transit query does.
         var accepted = TrackingStatus.Accepted.ToDisplay();
-        var shipments = await db.Shipments.AsNoTracking()
-            .Where(s => s.CustomerCode == customerCode && s.CurrentStatus != accepted)
-            .ToListAsync(cancellationToken);
+        var shipmentsQuery = db.Shipments.AsNoTracking()
+            .Where(s => s.CustomerCode == customerCode && s.CurrentStatus != accepted);
+        shipmentsQuery = ApplyPartnerFilter(shipmentsQuery, permissions, restricted, partnerName);
+
+        var shipments = await shipmentsQuery.ToListAsync(cancellationToken);
 
         if (shipments.Count == 0)
         {
@@ -406,6 +442,47 @@ public sealed class IntegrationShipmentQueryService(
             .FirstOrDefaultAsync(cancellationToken);
 
         return string.IsNullOrWhiteSpace(customerCode) ? null : customerCode;
+    }
+
+    /// <summary>
+    /// Restricts a Broker/LogisticsCompany account to its own shipments, matched by the partner's
+    /// name against LTS_Shipments.LogisticsCompany/BrokerCompany (free text there, so this is a
+    /// name match rather than a real foreign key). Not restricted when the caller is not
+    /// partner-scoped. Restricted-with-no-name means the account's partner could not be resolved
+    /// at all, so the caller should treat that as "matches nothing" rather than "unrestricted".
+    /// </summary>
+    private async Task<(bool Restricted, string? PartnerName)> ResolvePartnerFilterAsync(
+        UserPermissions permissions, CancellationToken cancellationToken)
+    {
+        if (!permissions.IsPartnerScoped)
+        {
+            return (false, null);
+        }
+
+        if (permissions.PartnerId is not { } partnerId)
+        {
+            return (true, null);
+        }
+
+        var name = await partnersDb.Partners.AsNoTracking()
+            .Where(p => p.Id == partnerId)
+            .Select(p => p.Name)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return (true, name);
+    }
+
+    private static IQueryable<LtsIntegrationShipment> ApplyPartnerFilter(
+        IQueryable<LtsIntegrationShipment> query, UserPermissions permissions, bool restricted, string? partnerName)
+    {
+        if (!restricted)
+        {
+            return query;
+        }
+
+        return permissions.UserType == UserType.Broker
+            ? query.Where(s => s.BrokerCompany == partnerName)
+            : query.Where(s => s.LogisticsCompany == partnerName);
     }
 
     private static IQueryable<LtsIntegrationShipment> ApplyFilter(
