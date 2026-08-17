@@ -1,5 +1,6 @@
 using LTS.Application.Security;
 using LTS.Infrastructure.Persistence;
+using LTS.Infrastructure.Reference;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 
@@ -8,7 +9,7 @@ namespace LTS.Infrastructure.Security;
 /// <summary>
 /// Builds a user's <see cref="UserPermissions"/> from the country and page grant tables.
 /// </summary>
-public sealed class PermissionService(LtsDbContext db, IMemoryCache cache) : IPermissionService
+public sealed class PermissionService(LtsIntegrationDbContext db, IMemoryCache cache) : IPermissionService
 {
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
 
@@ -38,16 +39,18 @@ public sealed class PermissionService(LtsDbContext db, IMemoryCache cache) : IPe
             return UserPermissions.None;
         }
 
+        // CountryId here is LTS_Integration's own raw id; the rest of the app compares against
+        // the offset id everywhere (see IntegrationCountryId), so it is converted on the way out.
         var countries = await db.UserCountryAccess
             .AsNoTracking()
-            .Where(a => a.UserId == userId && a.Country!.IsActive)
-            .Select(a => a.CountryId)
+            .Where(a => a.UserId == userId)
+            .Select(a => a.CountryId + IntegrationCountryId.Offset)
             .ToListAsync(cancellationToken);
 
         var grants = await db.UserPagePermissions
             .AsNoTracking()
             .Where(p => p.UserId == userId && (p.CanView || p.CanEdit))
-            .Select(p => new { p.CountryId, p.PageKey, p.CanView, p.CanEdit })
+            .Select(p => new { CountryId = p.CountryId + IntegrationCountryId.Offset, p.PageKey, p.CanView, p.CanEdit })
             .ToListAsync(cancellationToken);
 
         var pages = grants.ToDictionary(

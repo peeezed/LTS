@@ -45,7 +45,7 @@ internal static class DemoDataSeeder
         await SeedKpiTargetsAsync(db, countries, lookups);
         await SeedIntegrationAsync(db, countries);
         await SeedShipmentsAsync(db, countries, lookups, loadingPoints, partners, stores);
-        await SeedUsersAsync(provider, countries, partners);
+        await SeedUsersAsync(provider, partners);
 
         logger.LogInformation("Demo data seeded: {Shipments} shipments, {Transfers} transfers.",
             await db.Shipments.CountAsync(), await db.Transfers.CountAsync());
@@ -452,12 +452,16 @@ internal static class DemoDataSeeder
 
     /// <summary>
     /// One account per user type, each with the permissions its type implies, so the row and
-    /// field restrictions can be checked by simply logging in as each of them.
+    /// field restrictions can be checked by simply logging in as each of them. Accounts and their
+    /// grants are written through LtsIntegrationDbContext, not LtsDbContext: that is where
+    /// UserManager now creates the AppUser row, and where LTS_UserCountryAccess's foreign key
+    /// actually points.
     /// </summary>
-    private static async Task SeedUsersAsync(IServiceProvider provider, List<Country> countries, List<Partner> partners)
+    private static async Task SeedUsersAsync(IServiceProvider provider, List<Partner> partners)
     {
         var users = provider.GetRequiredService<UserManager<AppUser>>();
-        var db = provider.GetRequiredService<LtsDbContext>();
+        var db = provider.GetRequiredService<LtsIntegrationDbContext>();
+        var countries = await db.Countries.ToListAsync();
 
         var logisticsCompany = partners.First(p => p.Type == PartnerType.LogisticsCompany);
         var broker = partners.First(p => p.Type == PartnerType.Broker);

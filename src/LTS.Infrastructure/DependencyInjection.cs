@@ -61,7 +61,9 @@ public static class DependencyInjection
                 options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
             })
             .AddRoles<IdentityRole<Guid>>()
-            .AddEntityFrameworkStores<LtsDbContext>()
+            // Accounts sign in against LTS_Integration now, not the app's own database - see
+            // LtsIntegrationDbContext.
+            .AddEntityFrameworkStores<LtsIntegrationDbContext>()
             .AddSignInManager()
             .AddClaimsPrincipalFactory<AppUserClaimsPrincipalFactory>()
             .AddDefaultTokenProviders();

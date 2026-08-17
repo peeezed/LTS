@@ -5,13 +5,19 @@ using LTS.Domain.Entities;
 using LTS.Domain.Enums;
 using LTS.Domain.Security;
 using LTS.Infrastructure.Persistence;
+using LTS.Infrastructure.Reference;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
 namespace LTS.Infrastructure.Security;
 
+/// <summary>
+/// Accounts and their grants live in LtsIntegrationDbContext; partner names are still looked up
+/// from LtsDbContext, since Partners has not moved yet.
+/// </summary>
 public sealed class UserAdminService(
-    LtsDbContext db,
+    LtsIntegrationDbContext db,
+    LtsDbContext partnersDb,
     UserManager<AppUser> users,
     IPermissionService permissions,
     ICurrentUser currentUser,
@@ -19,6 +25,14 @@ public sealed class UserAdminService(
 {
     public async Task<IReadOnlyList<UserRow>> GetUsersAsync(CancellationToken cancellationToken = default)
     {
+        var partnerNames = await partnersDb.Partners
+            .AsNoTracking()
+            .ToDictionaryAsync(p => p.Id, p => p.Name, cancellationToken);
+
+        var countryCodes = await db.Countries
+            .AsNoTracking()
+            .ToDictionaryAsync(c => c.Id, c => c.CountryCode, cancellationToken);
+
         var rows = await db.Users
             .AsNoTracking()
             .OrderBy(u => u.FullName)
@@ -29,14 +43,10 @@ public sealed class UserAdminService(
                 u.FullName,
                 u.UserType,
                 u.PartnerId,
-                PartnerName = u.Partner!.Name,
                 u.IsActive,
                 u.MustChangePassword,
                 u.LastLoginAt,
-                Countries = db.UserCountryAccess
-                    .Where(a => a.UserId == u.Id)
-                    .Select(a => a.Country!.Code)
-                    .ToList()
+                CountryIds = db.UserCountryAccess.Where(a => a.UserId == u.Id).Select(a => a.CountryId).ToList()
             })
             .ToListAsync(cancellationToken);
 
@@ -49,11 +59,11 @@ public sealed class UserAdminService(
                 FullName = u.FullName,
                 UserType = u.UserType,
                 PartnerId = u.PartnerId,
-                PartnerName = u.PartnerName,
+                PartnerName = u.PartnerId is { } partnerId ? partnerNames.GetValueOrDefault(partnerId) : null,
                 IsActive = u.IsActive,
                 MustChangePassword = u.MustChangePassword,
                 LastLoginAt = u.LastLoginAt,
-                Countries = u.Countries
+                Countries = [.. u.CountryIds.Select(id => countryCodes.GetValueOrDefault(id, "?"))]
             })
         ];
     }
@@ -66,16 +76,18 @@ public sealed class UserAdminService(
             return null;
         }
 
+        // Stored as LTS_Integration's own raw ids; exposed to the editor in the same offset id
+        // space as the country list it picks from (IReferenceDataService.GetIntegrationCountriesAsync).
         var countries = await db.UserCountryAccess
             .AsNoTracking()
             .Where(a => a.UserId == id)
-            .Select(a => a.CountryId)
+            .Select(a => a.CountryId + IntegrationCountryId.Offset)
             .ToListAsync(cancellationToken);
 
         var grants = await db.UserPagePermissions
             .AsNoTracking()
             .Where(p => p.UserId == id)
-            .Select(p => new PagePermissionInput(p.CountryId, p.PageKey, p.CanView, p.CanEdit))
+            .Select(p => new PagePermissionInput(p.CountryId + IntegrationCountryId.Offset, p.PageKey, p.CanView, p.CanEdit))
             .ToListAsync(cancellationToken);
 
         return new UserInput
@@ -179,9 +191,16 @@ public sealed class UserAdminService(
 
         await db.SaveChangesAsync(cancellationToken);
 
+        // input.CountryIds/grant.CountryId arrive in the offset id space (the editor picked from
+        // GetIntegrationCountriesAsync); LTS_UserCountryAccess/LTS_UserPagePermissions store the
+        // raw id their foreign key to LTS_Countries actually needs.
         foreach (var countryId in input.CountryIds.Distinct())
         {
-            db.UserCountryAccess.Add(new UserCountryAccess { UserId = userId, CountryId = countryId });
+            db.UserCountryAccess.Add(new UserCountryAccess
+            {
+                UserId = userId,
+                CountryId = IntegrationCountryId.ToRawId(countryId)
+            });
         }
 
         var seen = new HashSet<string>();
@@ -208,7 +227,7 @@ public sealed class UserAdminService(
             db.UserPagePermissions.Add(new UserPagePermission
             {
                 UserId = userId,
-                CountryId = grant.CountryId,
+                CountryId = grant.CountryId is { } gcid ? IntegrationCountryId.ToRawId(gcid) : null,
                 PageKey = grant.PageKey,
                 CanView = grant.CanView || grant.CanEdit,
                 CanEdit = grant.CanEdit

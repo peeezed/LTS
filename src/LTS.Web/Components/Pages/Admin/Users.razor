@@ -154,7 +154,7 @@ else
         }
 
         _canEdit = permissions.CanEdit(PageKeys.AdminUsers, null);
-        _countries = await Reference.GetCountriesAsync();
+        _countries = await Reference.GetIntegrationCountriesAsync();
         _partners = await Reference.GetPartnersAsync();
 
         await LoadAsync();
