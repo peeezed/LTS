@@ -88,7 +88,10 @@ public static class DependencyInjection
 
         services.AddScoped<IPermissionService, PermissionService>();
         services.AddScoped<IReferenceDataService, ReferenceDataService>();
-        services.AddScoped<IShipmentQueryService, ShipmentQueryService>();
+        // Sourced from LTS_Integration, not the old database - see IntegrationShipmentQueryService.
+        // Every country reachable through CountryContext now comes from LTS_Integration, so the
+        // old LtsDbContext-backed ShipmentQueryService has nothing left to serve.
+        services.AddScoped<IShipmentQueryService, IntegrationShipmentQueryService>();
         services.AddScoped<IMilestoneService, MilestoneService>();
         services.AddScoped<IKpiTargetProvider, KpiTargetProvider>();
 

@@ -23,6 +23,12 @@ public class LtsIntegrationDbContext(DbContextOptions<LtsIntegrationDbContext> o
     public DbSet<UserCountryAccess> UserCountryAccess => Set<UserCountryAccess>();
     public DbSet<UserPagePermission> UserPagePermissions => Set<UserPagePermission>();
 
+    public DbSet<LtsIntegrationShipment> Shipments => Set<LtsIntegrationShipment>();
+    public DbSet<LtsIntegrationShipmentDate> ShipmentDates => Set<LtsIntegrationShipmentDate>();
+    public DbSet<LtsIntegrationShipmentTransfer> ShipmentTransfers => Set<LtsIntegrationShipmentTransfer>();
+    public DbSet<LtsIntegrationShipmentTransferDate> ShipmentTransferDates => Set<LtsIntegrationShipmentTransferDate>();
+    public DbSet<LtsIntegrationBox> Boxes => Set<LtsIntegrationBox>();
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -102,6 +108,46 @@ public class LtsIntegrationDbContext(DbContextOptions<LtsIntegrationDbContext> o
             entity.Property(p => p.Id).HasColumnName("ID");
             entity.Ignore(p => p.Country);
         });
+
+        // The staging tables an integration writes a shipment into before the LTS frontend reads
+        // it: one header row per shipment, its dates, its transfers (split at the crossdock, one
+        // per store) and their dates, and the boxes each transfer contains. None of these carry
+        // real foreign keys or a country id - a shipment's country is resolved by matching its
+        // CustomerCode against LTS_Countries.CustomerCode (see IntegrationShipmentQueryService).
+        // None of the four child tables have a declared primary key in the hand-written DDL, so
+        // the composite keys below exist only for EF's model (not enforced in SQL) - fine for the
+        // read-only, AsNoTracking queries this context is used for here.
+        builder.Entity<LtsIntegrationShipment>(entity =>
+        {
+            entity.ToTable("LTS_Shipments");
+            entity.HasKey(s => s.Id);
+            entity.Property(s => s.Id).HasColumnName("ID");
+        });
+
+        builder.Entity<LtsIntegrationShipmentDate>(entity =>
+        {
+            entity.ToTable("LTS_ShipmentDates");
+            entity.HasKey(d => d.Id);
+            entity.Property(d => d.Id).HasColumnName("ID");
+        });
+
+        builder.Entity<LtsIntegrationShipmentTransfer>(entity =>
+        {
+            entity.ToTable("LTS_ShipmentTransfers");
+            entity.HasKey(t => new { t.ReferenceNo, t.TransferNo });
+        });
+
+        builder.Entity<LtsIntegrationShipmentTransferDate>(entity =>
+        {
+            entity.ToTable("LTS_ShipmentTransferDates");
+            entity.HasKey(d => d.TransferNo);
+        });
+
+        builder.Entity<LtsIntegrationBox>(entity =>
+        {
+            entity.ToTable("LTS_Boxes");
+            entity.HasKey(b => new { b.TransferNo, b.PackageNo });
+        });
     }
 }
 
@@ -113,4 +159,86 @@ public class LtsIntegrationCountry
     public required string CountryDescription { get; set; }
     public string? CustomerCode { get; set; }
     public bool IsActive { get; set; } = true;
+}
+
+/// <summary>
+/// One row of LTS_Shipments: the header an integration writes for a shipment, before the app
+/// reads it. CurrentStatus/Performance are the display strings from StatusDisplay
+/// (TrackingStatus/PerformanceStatus.ToDisplay()), not enum names - e.g. "Not Started", not
+/// "NotStarted". The seven attribute columns are free text, not ids into the LTS_-prefixed
+/// attribute tables, so they are shown as-is rather than joined.
+/// </summary>
+public class LtsIntegrationShipment
+{
+    public int Id { get; set; }
+    public required string ReferenceNo { get; set; }
+    public required string InvoiceNo { get; set; }
+    public DateOnly InvoiceDate { get; set; }
+    public required string CurrentStatus { get; set; }
+    public required string Performance { get; set; }
+    public string? ArrivalCountry { get; set; }
+    public string? ArrivalCustoms { get; set; }
+    public string? ExportType { get; set; }
+    public string? TransportType { get; set; }
+    public string? LoadingPoint { get; set; }
+    public string? LogisticsCompany { get; set; }
+    public string? BrokerCompany { get; set; }
+    public required string CustomerCode { get; set; }
+    public int? TotalTransfers { get; set; }
+    public int? TotalBoxes { get; set; }
+    public int? TotalItems { get; set; }
+}
+
+/// <summary>
+/// One row of LTS_ShipmentDates: a shipment's own milestone dates, one row per ReferenceNo. Only
+/// the actual dates are mapped, not the KPI target/estimate columns the table also carries -
+/// KPI is out of scope for LTS_Integration.
+/// </summary>
+public class LtsIntegrationShipmentDate
+{
+    public int Id { get; set; }
+    public required string ReferenceNo { get; set; }
+    public DateOnly? LoadingDate { get; set; }
+    public DateOnly? CustomsClearanceDate { get; set; }
+    public DateOnly? DepartureDate { get; set; }
+    public DateOnly? ArrivalDate { get; set; }
+    public DateOnly? ArrivalCustomsStartDate { get; set; }
+    public DateOnly? ArrivalCustomsEndDate { get; set; }
+    public DateOnly? CrossdockArrivalDate { get; set; }
+}
+
+/// <summary>One row of LTS_ShipmentTransfers: a shipment split at the crossdock, one per store.</summary>
+public class LtsIntegrationShipmentTransfer
+{
+    public required string ReferenceNo { get; set; }
+    public required string TransferNo { get; set; }
+    public string? InvoiceNo { get; set; }
+    public DateOnly? DateCreated { get; set; }
+    public string? ReceivingStoreCode { get; set; }
+    public required string CurrentStatus { get; set; }
+    public required string Performance { get; set; }
+    public int? TotalBoxes { get; set; }
+    public int? TotalItems { get; set; }
+}
+
+/// <summary>One row of LTS_ShipmentTransferDates: a transfer's crossdock and store dates.</summary>
+public class LtsIntegrationShipmentTransferDate
+{
+    public required string TransferNo { get; set; }
+    public DateOnly? CrossdockDepartureDate { get; set; }
+    public DateOnly? PlannedStoreArrivalDate { get; set; }
+    public DateOnly? StoreArrivalDate { get; set; }
+}
+
+/// <summary>
+/// One row of LTS_Boxes. Store pre-acceptance and acceptance are recorded per box, not per
+/// transfer - IntegrationShipmentQueryService rolls them up to a single transfer-level date.
+/// </summary>
+public class LtsIntegrationBox
+{
+    public required string TransferNo { get; set; }
+    public required string PackageNo { get; set; }
+    public required string Status { get; set; }
+    public DateOnly? PreAcceptanceDate { get; set; }
+    public DateOnly? AcceptanceDate { get; set; }
 }
