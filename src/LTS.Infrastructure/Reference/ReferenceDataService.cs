@@ -15,7 +15,7 @@ public sealed class ReferenceDataService(
             .AsNoTracking()
             .Where(c => !activeOnly || c.IsActive)
             .OrderBy(c => c.Name)
-            .Select(c => new CountryDto(c.Id, c.Code, c.Name, c.IsActive))
+            .Select(c => new CountryDto(c.Id, c.Code, c.Name, c.IsActive, null))
             .ToListAsync(cancellationToken);
 
     public async Task<IReadOnlyList<CountryDto>> GetAccessibleCountriesAsync(
@@ -34,18 +34,20 @@ public sealed class ReferenceDataService(
 
         return await query
             .OrderBy(c => c.Name)
-            .Select(c => new CountryDto(c.Id, c.Code, c.Name, c.IsActive))
+            .Select(c => new CountryDto(c.Id, c.Code, c.Name, c.IsActive, null))
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<IReadOnlyList<CountryDto>> GetIntegrationCountriesAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<CountryDto>> GetIntegrationCountriesAsync(
+        bool activeOnly = true, CancellationToken cancellationToken = default)
     {
         await using var integrationDb = await integrationDbFactory.CreateDbContextAsync(cancellationToken);
 
         return await integrationDb.Countries
             .AsNoTracking()
+            .Where(c => !activeOnly || c.IsActive)
             .OrderBy(c => c.CountryDescription)
-            .Select(c => new CountryDto(c.Id + IntegrationCountryId.Offset, c.CountryCode, c.CountryDescription, true))
+            .Select(c => new CountryDto(c.Id + IntegrationCountryId.Offset, c.CountryCode, c.CountryDescription, c.IsActive, c.CustomerCode))
             .ToListAsync(cancellationToken);
     }
 
@@ -63,7 +65,7 @@ public sealed class ReferenceDataService(
         return await integrationDb.Countries
             .AsNoTracking()
             .Where(c => c.CountryCode == normalised)
-            .Select(c => new CountryDto(c.Id + IntegrationCountryId.Offset, c.CountryCode, c.CountryDescription, true))
+            .Select(c => new CountryDto(c.Id + IntegrationCountryId.Offset, c.CountryCode, c.CountryDescription, c.IsActive, c.CustomerCode))
             .FirstOrDefaultAsync(cancellationToken);
     }
 
@@ -79,7 +81,7 @@ public sealed class ReferenceDataService(
         return await db.Countries
             .AsNoTracking()
             .Where(c => c.Code == normalised)
-            .Select(c => new CountryDto(c.Id, c.Code, c.Name, c.IsActive))
+            .Select(c => new CountryDto(c.Id, c.Code, c.Name, c.IsActive, null))
             .FirstOrDefaultAsync(cancellationToken);
     }
 

@@ -37,12 +37,14 @@ else
         <HeaderContent>
             <MudTh>Code</MudTh>
             <MudTh>Name</MudTh>
+            <MudTh>Customer code</MudTh>
             <MudTh>Active</MudTh>
             <MudTh></MudTh>
         </HeaderContent>
         <RowTemplate>
             <MudTd>@context.Code</MudTd>
             <MudTd>@context.Name</MudTd>
+            <MudTd>@context.CustomerCode</MudTd>
             <MudTd><ActiveIcon IsActive="context.IsActive" /></MudTd>
             <MudTd>
                 <MudStack Row="true" Spacing="0">
@@ -76,13 +78,11 @@ else
                                   Margin="Margin.Dense" />
                 </MudItem>
                 <MudItem xs="12" sm="3">
-                    <MudSwitch T="bool" @bind-Value="_isActive" Label="Active" Color="Color.Primary" />
+                    <MudTextField T="string" @bind-Value="_customerCode" Label="Customer code" Variant="Variant.Outlined"
+                                  Margin="Margin.Dense" HelperText="Used by the integration layer to match this country" />
                 </MudItem>
                 <MudItem xs="12" sm="3">
-                    <MudTooltip Text="Not yet available: KPI durations are counted in calendar days until a holiday calendar exists for the country.">
-                        <MudSwitch T="bool" @bind-Value="_useWorkingDays" Label="Count working days" Disabled="true"
-                                   Color="Color.Primary" />
-                    </MudTooltip>
+                    <MudSwitch T="bool" @bind-Value="_isActive" Label="Active" Color="Color.Primary" />
                 </MudItem>
                 <MudItem xs="12" Class="d-flex gap-2">
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync">Save</MudButton>
@@ -99,8 +99,8 @@ else
     private CountryDto? _editing;
     private string _code = string.Empty;
     private string _name = string.Empty;
+    private string _customerCode = string.Empty;
     private bool _isActive = true;
-    private bool _useWorkingDays;
     private bool _ready;
     private bool _canEdit;
 
@@ -119,23 +119,23 @@ else
         _ready = true;
     }
 
-    private async Task LoadAsync() => _countries = await Reference.GetCountriesAsync(activeOnly: false);
+    private async Task LoadAsync() => _countries = await Reference.GetIntegrationCountriesAsync(activeOnly: false);
 
     private void Edit(CountryDto? country)
     {
         _editing = country ?? new CountryDto(0, string.Empty, string.Empty, true);
         _code = _editing.Code;
         _name = _editing.Name;
+        _customerCode = _editing.CustomerCode ?? string.Empty;
         _isActive = _editing.IsActive;
-        _useWorkingDays = false;
     }
 
     private async Task SaveAsync()
     {
         try
         {
-            await MasterData.SaveCountryAsync(new CountryInput(
-                _editing!.Id == 0 ? null : _editing.Id, _code, _name, _isActive, _useWorkingDays));
+            await MasterData.SaveIntegrationCountryAsync(new IntegrationCountryInput(
+                _editing!.Id == 0 ? null : _editing.Id, _code, _name, _isActive, _customerCode));
 
             _editing = null;
             Snackbar.Add("Country saved.", Severity.Success);

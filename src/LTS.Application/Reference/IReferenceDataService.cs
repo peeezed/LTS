@@ -3,7 +3,7 @@ using LTS.Domain.Enums;
 
 namespace LTS.Application.Reference;
 
-public sealed record CountryDto(int Id, string Code, string Name, bool IsActive)
+public sealed record CountryDto(int Id, string Code, string Name, bool IsActive, string? CustomerCode = null)
 {
     public string Display => $"{Code} - {Name}";
 }
@@ -37,9 +37,10 @@ public interface IReferenceDataService
     /// <summary>
     /// Countries from LTS_Integration's own country table, read directly from that database
     /// rather than the app's. Temporary: until permissions and country-scoping are migrated
-    /// too, this is unfiltered - every signed-in user sees every row.
+    /// too, this is unfiltered by access - every signed-in user sees every active row.
     /// </summary>
-    Task<IReadOnlyList<CountryDto>> GetIntegrationCountriesAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<CountryDto>> GetIntegrationCountriesAsync(
+        bool activeOnly = true, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Resolves one country by code from LTS_Integration, for route resolution. Counterpart to

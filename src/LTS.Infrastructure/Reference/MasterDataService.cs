@@ -5,7 +5,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LTS.Infrastructure.Reference;
 
-public sealed class MasterDataService(LtsDbContext db) : IMasterDataService
+public sealed class MasterDataService(
+    LtsDbContext db, IDbContextFactory<LtsIntegrationDbContext> integrationDbFactory) : IMasterDataService
 {
     public async Task<int> SaveCountryAsync(CountryInput input, CancellationToken cancellationToken = default)
     {
@@ -24,6 +25,38 @@ public sealed class MasterDataService(LtsDbContext db) : IMasterDataService
         await db.SaveChangesAsync(cancellationToken);
 
         return country.Id;
+    }
+
+    public async Task<int> SaveIntegrationCountryAsync(
+        IntegrationCountryInput input, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+
+        var code = Require(input.Code, "Country code").ToUpperInvariant();
+
+        await using var integrationDb = await integrationDbFactory.CreateDbContextAsync(cancellationToken);
+
+        LtsIntegrationCountry country;
+        if (input.Id is { } id)
+        {
+            var rawId = IntegrationCountryId.ToRawId(id);
+            country = await integrationDb.Countries.FirstOrDefaultAsync(c => c.Id == rawId, cancellationToken)
+                ?? throw new InvalidOperationException($"Country {rawId} does not exist.");
+        }
+        else
+        {
+            country = new LtsIntegrationCountry { CountryCode = code, CountryDescription = input.Name };
+            integrationDb.Countries.Add(country);
+        }
+
+        country.CountryCode = code;
+        country.CountryDescription = Require(input.Name, "Country name");
+        country.IsActive = input.IsActive;
+        country.CustomerCode = string.IsNullOrWhiteSpace(input.CustomerCode) ? null : input.CustomerCode.Trim();
+
+        await integrationDb.SaveChangesAsync(cancellationToken);
+
+        return IntegrationCountryId.ToAppId(country.Id);
     }
 
     public async Task<int> SaveLookupAsync(LookupInput input, CancellationToken cancellationToken = default)

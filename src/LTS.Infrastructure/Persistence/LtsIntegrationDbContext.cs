@@ -35,6 +35,7 @@ public class LtsIntegrationDbContext(DbContextOptions<LtsIntegrationDbContext> o
             entity.Property(c => c.CountryCode).HasColumnName("CountryCode").HasMaxLength(2).IsRequired();
             entity.Property(c => c.CountryDescription).HasColumnName("CountryDescription").HasMaxLength(50).IsRequired();
             entity.Property(c => c.CustomerCode).HasColumnName("CustomerCode").HasMaxLength(50);
+            entity.Property(c => c.IsActive).HasColumnName("IsActive");
         });
 
         // AppUser's Partner and UserCountryAccess/UserPagePermission's Country navigations point
@@ -111,4 +112,5 @@ public class LtsIntegrationCountry
     public required string CountryCode { get; set; }
     public required string CountryDescription { get; set; }
     public string? CustomerCode { get; set; }
+    public bool IsActive { get; set; } = true;
 }
