@@ -34,6 +34,19 @@ public interface IReferenceDataService
     Task<IReadOnlyList<CountryDto>> GetAccessibleCountriesAsync(
         UserPermissions permissions, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Countries from LTS_Integration's own country table, read directly from that database
+    /// rather than the app's. Temporary: until permissions and country-scoping are migrated
+    /// too, this is unfiltered - every signed-in user sees every row.
+    /// </summary>
+    Task<IReadOnlyList<CountryDto>> GetIntegrationCountriesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Resolves one country by code from LTS_Integration, for route resolution. Counterpart to
+    /// <see cref="GetIntegrationCountriesAsync"/> - same temporary caveat about permissions.
+    /// </summary>
+    Task<CountryDto?> GetIntegrationCountryByCodeAsync(string code, CancellationToken cancellationToken = default);
+
     Task<CountryDto?> GetCountryByCodeAsync(string code, CancellationToken cancellationToken = default);
 
     /// <summary>

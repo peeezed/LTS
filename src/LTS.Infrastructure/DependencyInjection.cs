@@ -34,6 +34,13 @@ public static class DependencyInjection
             connectionString,
             sql => sql.MigrationsAssembly(typeof(LtsDbContext).Assembly.FullName)));
 
+        // The external database the app is being migrated onto, table by table. Its schema is
+        // managed by hand, so this is never given a migrations assembly.
+        var integrationConnectionString = configuration.GetConnectionString("LtsIntegration")
+            ?? throw new InvalidOperationException("Connection string 'LtsIntegration' is not configured.");
+
+        services.AddDbContext<LtsIntegrationDbContext>(options => options.UseSqlServer(integrationConnectionString));
+
         services.AddMemoryCache();
 
         services.AddIdentityCore<AppUser>(options =>

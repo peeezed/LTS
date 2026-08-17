@@ -6,8 +6,18 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LTS.Infrastructure.Reference;
 
-public sealed class ReferenceDataService(LtsDbContext db) : IReferenceDataService
+public sealed class ReferenceDataService(LtsDbContext db, LtsIntegrationDbContext integrationDb) : IReferenceDataService
 {
+    /// <summary>
+    /// Added to LTS_Integration's own small sequential row ids before they are exposed as a
+    /// CountryDto.Id. Without this, e.g. LTS_Integration's Romania (id 1) and the app's own
+    /// Turkey (id 1) are indistinguishable to any query that filters on a bare int country id -
+    /// which is exactly what happened before this was added: opening Romania showed Turkey's
+    /// real shipments, because both ids were 1. Far outside the range either table's identity
+    /// column will ever reach, so the two id spaces can never collide.
+    /// </summary>
+    private const int IntegrationCountryIdOffset = 1_000_000;
+
     public async Task<IReadOnlyList<CountryDto>> GetCountriesAsync(
         bool activeOnly = true, CancellationToken cancellationToken = default) =>
         await db.Countries
@@ -35,6 +45,29 @@ public sealed class ReferenceDataService(LtsDbContext db) : IReferenceDataServic
             .OrderBy(c => c.Name)
             .Select(c => new CountryDto(c.Id, c.Code, c.Name, c.IsActive))
             .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<CountryDto>> GetIntegrationCountriesAsync(CancellationToken cancellationToken = default) =>
+        await integrationDb.Countries
+            .AsNoTracking()
+            .OrderBy(c => c.CountryDescription)
+            .Select(c => new CountryDto(c.Id + IntegrationCountryIdOffset, c.CountryCode, c.CountryDescription, true))
+            .ToListAsync(cancellationToken);
+
+    public async Task<CountryDto?> GetIntegrationCountryByCodeAsync(string code, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            return null;
+        }
+
+        var normalised = code.Trim().ToUpperInvariant();
+
+        return await integrationDb.Countries
+            .AsNoTracking()
+            .Where(c => c.CountryCode == normalised)
+            .Select(c => new CountryDto(c.Id + IntegrationCountryIdOffset, c.CountryCode, c.CountryDescription, true))
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     public async Task<CountryDto?> GetCountryByCodeAsync(string code, CancellationToken cancellationToken = default)

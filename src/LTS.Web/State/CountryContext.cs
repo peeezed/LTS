@@ -36,7 +36,8 @@ public sealed class CountryContext(IReferenceDataService reference, PermissionSt
             return true;
         }
 
-        var country = await reference.GetCountryByCodeAsync(code, cancellationToken);
+        // LTS_Integration, not the app's own Countries table - see IReferenceDataService.
+        var country = await reference.GetIntegrationCountryByCodeAsync(code, cancellationToken);
         if (country is null || !country.IsActive)
         {
             return false;

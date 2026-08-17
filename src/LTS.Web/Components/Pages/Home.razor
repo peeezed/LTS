@@ -1,6 +1,5 @@
 @page "/"
 @inject IReferenceDataService Reference
-@inject PermissionState Permissions
 @inject CountryContext Country
 @inject NavigationManager Navigation
 
@@ -54,8 +53,7 @@
         // "choose country", which is the honest state while the user is on this page.
         Country.Clear();
 
-        var permissions = await Permissions.GetAsync();
-        _countries = await Reference.GetAccessibleCountriesAsync(permissions);
+        _countries = await Reference.GetIntegrationCountriesAsync();
 
         // One country is not a choice, so skip the ceremony.
         if (_countries.Count == 1)
