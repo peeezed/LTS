@@ -39,7 +39,19 @@ public static class DependencyInjection
         var integrationConnectionString = configuration.GetConnectionString("LtsIntegration")
             ?? throw new InvalidOperationException("Connection string 'LtsIntegration' is not configured.");
 
-        services.AddDbContext<LtsIntegrationDbContext>(options => options.UseSqlServer(integrationConnectionString));
+        // Registered once, as a factory: IDbContextFactory<LtsIntegrationDbContext> (singleton)
+        // creates short-lived instances on demand for the services below, and the scoped
+        // LtsIntegrationDbContext Identity needs is derived from that same factory rather than
+        // configured a second time - two separate UseSqlServer registrations for the same
+        // context type conflict at startup (the factory ends up depending on the other
+        // registration's scoped DbContextOptions). Identity keeps its scoped instance for the
+        // whole request/circuit; the services below instead take a fresh instance per call,
+        // because they used to share the scoped instance with Identity's own store, which
+        // occasionally raced with it ("a second operation was started on this context instance
+        // before a previous operation completed") - Blazor Server can genuinely run more than one
+        // thing concurrently within the same circuit's DI scope.
+        services.AddDbContextFactory<LtsIntegrationDbContext>(options => options.UseSqlServer(integrationConnectionString));
+        services.AddScoped(sp => sp.GetRequiredService<IDbContextFactory<LtsIntegrationDbContext>>().CreateDbContext());
 
         services.AddMemoryCache();
 

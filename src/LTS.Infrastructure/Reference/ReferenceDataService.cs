@@ -6,7 +6,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LTS.Infrastructure.Reference;
 
-public sealed class ReferenceDataService(LtsDbContext db, LtsIntegrationDbContext integrationDb) : IReferenceDataService
+public sealed class ReferenceDataService(
+    LtsDbContext db, IDbContextFactory<LtsIntegrationDbContext> integrationDbFactory) : IReferenceDataService
 {
     public async Task<IReadOnlyList<CountryDto>> GetCountriesAsync(
         bool activeOnly = true, CancellationToken cancellationToken = default) =>
@@ -37,12 +38,16 @@ public sealed class ReferenceDataService(LtsDbContext db, LtsIntegrationDbContex
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<IReadOnlyList<CountryDto>> GetIntegrationCountriesAsync(CancellationToken cancellationToken = default) =>
-        await integrationDb.Countries
+    public async Task<IReadOnlyList<CountryDto>> GetIntegrationCountriesAsync(CancellationToken cancellationToken = default)
+    {
+        await using var integrationDb = await integrationDbFactory.CreateDbContextAsync(cancellationToken);
+
+        return await integrationDb.Countries
             .AsNoTracking()
             .OrderBy(c => c.CountryDescription)
             .Select(c => new CountryDto(c.Id + IntegrationCountryId.Offset, c.CountryCode, c.CountryDescription, true))
             .ToListAsync(cancellationToken);
+    }
 
     public async Task<CountryDto?> GetIntegrationCountryByCodeAsync(string code, CancellationToken cancellationToken = default)
     {
@@ -52,6 +57,8 @@ public sealed class ReferenceDataService(LtsDbContext db, LtsIntegrationDbContex
         }
 
         var normalised = code.Trim().ToUpperInvariant();
+
+        await using var integrationDb = await integrationDbFactory.CreateDbContextAsync(cancellationToken);
 
         return await integrationDb.Countries
             .AsNoTracking()

@@ -9,7 +9,8 @@ namespace LTS.Infrastructure.Security;
 /// <summary>
 /// Builds a user's <see cref="UserPermissions"/> from the country and page grant tables.
 /// </summary>
-public sealed class PermissionService(LtsIntegrationDbContext db, IMemoryCache cache) : IPermissionService
+public sealed class PermissionService(
+    IDbContextFactory<LtsIntegrationDbContext> dbFactory, IMemoryCache cache) : IPermissionService
 {
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
 
@@ -25,6 +26,8 @@ public sealed class PermissionService(LtsIntegrationDbContext db, IMemoryCache c
         {
             return cached;
         }
+
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
 
         var user = await db.Users
             .AsNoTracking()

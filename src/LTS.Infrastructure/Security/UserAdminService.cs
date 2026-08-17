@@ -13,10 +13,13 @@ namespace LTS.Infrastructure.Security;
 
 /// <summary>
 /// Accounts and their grants live in LtsIntegrationDbContext; partner names are still looked up
-/// from LtsDbContext, since Partners has not moved yet.
+/// from LtsDbContext, since Partners has not moved yet. Each public method creates its own
+/// short-lived LtsIntegrationDbContext via the factory rather than sharing one across the
+/// request/circuit - it used to share the scoped instance with Identity's own UserManager store,
+/// which occasionally raced with it.
 /// </summary>
 public sealed class UserAdminService(
-    LtsIntegrationDbContext db,
+    IDbContextFactory<LtsIntegrationDbContext> dbFactory,
     LtsDbContext partnersDb,
     UserManager<AppUser> users,
     IPermissionService permissions,
@@ -28,6 +31,8 @@ public sealed class UserAdminService(
         var partnerNames = await partnersDb.Partners
             .AsNoTracking()
             .ToDictionaryAsync(p => p.Id, p => p.Name, cancellationToken);
+
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
 
         var countryCodes = await db.Countries
             .AsNoTracking()
@@ -70,6 +75,8 @@ public sealed class UserAdminService(
 
     public async Task<UserInput?> GetUserAsync(Guid id, CancellationToken cancellationToken = default)
     {
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+
         var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == id, cancellationToken);
         if (user is null)
         {
@@ -144,7 +151,11 @@ public sealed class UserAdminService(
             return UserSaveResult.Failed([.. result.Errors.Select(e => e.Description)]);
         }
 
-        await ReplaceAccessAsync(user.Id, input, cancellationToken);
+        await using (var db = await dbFactory.CreateDbContextAsync(cancellationToken))
+        {
+            await ReplaceAccessAsync(db, user.Id, input, cancellationToken);
+        }
+
         permissions.Invalidate(user.Id);
 
         return new UserSaveResult(true, user.Id, password, []);
@@ -152,6 +163,8 @@ public sealed class UserAdminService(
 
     private async Task<UserSaveResult> UpdateAsync(Guid id, UserInput input, CancellationToken cancellationToken)
     {
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+
         var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id, cancellationToken);
         if (user is null)
         {
@@ -171,7 +184,7 @@ public sealed class UserAdminService(
             user.NormalizedUserName = users.NormalizeName(user.UserName);
         }
 
-        await ReplaceAccessAsync(id, input, cancellationToken);
+        await ReplaceAccessAsync(db, id, input, cancellationToken);
         permissions.Invalidate(id);
 
         return new UserSaveResult(true, id, null, []);
@@ -179,9 +192,12 @@ public sealed class UserAdminService(
 
     /// <summary>
     /// Replaces country and page grants wholesale. The editor always submits the complete
-    /// picture, so a diff would only add a way for a removed grant to survive.
+    /// picture, so a diff would only add a way for a removed grant to survive. Runs on the
+    /// caller's own db instance, since in UpdateAsync it also needs to flush the tracked AppUser
+    /// changes made just before this is called.
     /// </summary>
-    private async Task ReplaceAccessAsync(Guid userId, UserInput input, CancellationToken cancellationToken)
+    private static async Task ReplaceAccessAsync(
+        LtsIntegrationDbContext db, Guid userId, UserInput input, CancellationToken cancellationToken)
     {
         var existingCountries = await db.UserCountryAccess.Where(a => a.UserId == userId).ToListAsync(cancellationToken);
         db.UserCountryAccess.RemoveRange(existingCountries);
@@ -262,6 +278,8 @@ public sealed class UserAdminService(
 
     public async Task SetActiveAsync(Guid id, bool isActive, CancellationToken cancellationToken = default)
     {
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+
         var user = await db.Users.FirstOrDefaultAsync(u => u.Id == id, cancellationToken);
         if (user is null)
         {
