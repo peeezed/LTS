@@ -11,6 +11,7 @@ using LTS.Infrastructure.Kpi;
 using LTS.Infrastructure.Persistence;
 using LTS.Infrastructure.Reference;
 using LTS.Infrastructure.Security;
+using LTS.Infrastructure.ShipmentFeed;
 using LTS.Infrastructure.Tracking;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -118,6 +119,13 @@ public static class DependencyInjection
         services.AddSingleton<IIntegrationAdapterRegistry, IntegrationAdapterRegistry>();
         services.AddScoped<IntegrationRunner>();
         services.AddHostedService<IntegrationPoller>();
+
+        // Shipments feed: the company's own internal shipment header source. One shared
+        // endpoint, one country loop, config-driven - deliberately not routed through the dead
+        // adapter registry above.
+        services.AddScoped<IShipmentFeedClient, ShipmentFeedClient>();
+        services.AddScoped<ShipmentFeedRunner>();
+        services.AddHostedService<ShipmentFeedPoller>();
 
         return services;
     }

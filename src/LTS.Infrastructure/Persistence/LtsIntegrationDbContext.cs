@@ -30,6 +30,8 @@ public class LtsIntegrationDbContext(DbContextOptions<LtsIntegrationDbContext> o
     public DbSet<LtsIntegrationShipmentTransferDate> ShipmentTransferDates => Set<LtsIntegrationShipmentTransferDate>();
     public DbSet<LtsIntegrationBox> Boxes => Set<LtsIntegrationBox>();
 
+    public DbSet<LtsShipmentFeedStagingRecord> ShipmentFeedStaging => Set<LtsShipmentFeedStagingRecord>();
+
     // The seven shipment attribute lookup tables all share the same Code+Description shape, so
     // one shared-type entity (LtsIntegrationAttribute) is mapped onto each rather than declaring
     // six near-identical POCOs. LTS_ArrivalCountries is deliberately not mapped: Arrival Country
@@ -161,6 +163,18 @@ public class LtsIntegrationDbContext(DbContextOptions<LtsIntegrationDbContext> o
         {
             entity.ToTable("LTS_Boxes");
             entity.HasKey(b => new { b.TransferNo, b.PackageNo });
+        });
+
+        // Append-only audit trail for the shipment feed: one row per raw HTTP response (the bulk
+        // per-country list call, or one of the per-shipment detail calls), never updated or
+        // deleted once written - see ShipmentFeedRunner. EndpointKind/Status are stored as text
+        // to match this database's existing enum-as-text convention.
+        builder.Entity<LtsShipmentFeedStagingRecord>(entity =>
+        {
+            entity.ToTable("LTS_ShipmentFeedStaging");
+            entity.HasKey(s => s.Id);
+            entity.Property(s => s.Id).HasColumnName("ID");
+            entity.Property(s => s.Status).HasConversion<string>().HasMaxLength(20);
         });
 
         foreach (var (name, table) in new[]
@@ -302,3 +316,25 @@ public class LtsIntegrationBox
     public DateOnly? PreAcceptanceDate { get; set; }
     public DateOnly? AcceptanceDate { get; set; }
 }
+
+/// <summary>
+/// One row of LTS_ShipmentFeedStaging: the raw, verbatim JSON of one HTTP response from the
+/// shipment feed - either the bulk per-country list call (ReferenceNo null, EndpointKind
+/// "List") or one of the per-shipment detail calls (ReferenceNo set). Kept forever as an audit
+/// trail regardless of how standardizing/pushing it turned out - see ShipmentFeedRunner.
+/// </summary>
+public class LtsShipmentFeedStagingRecord
+{
+    public int Id { get; set; }
+    public required string CustomerCode { get; set; }
+    public string? CountryCode { get; set; }
+    public required string EndpointKind { get; set; }
+    public DateTime FetchedAt { get; set; }
+    public string? ReferenceNo { get; set; }
+    public required string RawPayload { get; set; }
+    public ShipmentFeedStagingStatus Status { get; set; } = ShipmentFeedStagingStatus.Pending;
+    public DateTime? ProcessedAt { get; set; }
+    public string? ErrorMessage { get; set; }
+}
+
+public enum ShipmentFeedStagingStatus { Pending, Processed, Failed }

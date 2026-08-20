@@ -20,6 +20,8 @@ public sealed class LtsOptions
     public AdminSeedOptions Admin { get; set; } = new();
 
     public IntegrationOptions Integration { get; set; } = new();
+
+    public ShipmentFeedOptions ShipmentFeed { get; set; } = new();
 }
 
 /// <summary>The first administrator, created on an empty database so someone can log in.</summary>
@@ -48,4 +50,22 @@ public sealed class IntegrationOptions
 
     /// <summary>Folder the mock adapter reads sample payloads from, relative to the content root.</summary>
     public string MockDataPath { get; set; } = "SampleData";
+}
+
+/// <summary>
+/// How the shipments feed poller behaves - the company's own internal shipment header source,
+/// pulled into LTS_Shipments via LTS_ShipmentFeedStaging. Unrelated to (and simpler than)
+/// <see cref="IntegrationOptions"/>, which belongs to the old, now-dead country-adapter pipeline.
+/// </summary>
+public sealed class ShipmentFeedOptions
+{
+    public bool Enabled { get; set; }
+
+    /// <summary>Base URL of the shared internal shipments endpoint.</summary>
+    public string? BaseUrl { get; set; }
+
+    /// <summary>Name of the entry under Integration:Secrets carrying the bearer token.</summary>
+    public string? SecretName { get; set; }
+
+    public int PollSeconds { get; set; } = 300;
 }
