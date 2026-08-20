@@ -21,7 +21,7 @@ public class UserPermissionsTests
             g => UserPermissions.Key(g.PageKey, g.CountryId),
             g => new PagePermission(g.CanView, g.CanEdit));
 
-        return new UserPermissions(Guid.NewGuid(), userType, partnerId, countries ?? [Turkey], pages);
+        return new UserPermissions(Guid.NewGuid(), userType, partnerId, null, countries ?? [Turkey], pages);
     }
 
     [Fact]

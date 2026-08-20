@@ -125,4 +125,16 @@ public sealed class ReferenceDataService(
             .OrderBy(s => s.Code)
             .Select(s => new StoreDto(s.Id, s.Code, s.Name, s.CountryId, s.IsActive))
             .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<AttributeDto>> GetIntegrationAttributesAsync(
+        AttributeKind kind, CancellationToken cancellationToken = default)
+    {
+        await using var integrationDb = await integrationDbFactory.CreateDbContextAsync(cancellationToken);
+
+        return await AttributeTables.For(integrationDb, kind)
+            .AsNoTracking()
+            .OrderBy(a => a.Description)
+            .Select(a => new AttributeDto(a.Id, a.Code, a.Description))
+            .ToListAsync(cancellationToken);
+    }
 }

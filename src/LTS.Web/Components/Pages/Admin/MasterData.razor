@@ -17,164 +17,46 @@ else
 {
     <MudText Typo="Typo.h5" Class="mb-1">Master Data</MudText>
     <MudText Typo="Typo.body2" Class="mud-text-secondary mb-4">
-        The reference data a country needs before shipments can arrive. Integration payloads are
-        matched to these by code, so a missing entry is what makes an import fail.
+        The reference data shipments are matched against. Integration payloads are matched to
+        these by code, so a missing entry is what makes an import fail. Shared across every
+        country - none of these tables are country-specific.
     </MudText>
 
     <MudTabs Elevation="1" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-4">
         <MudTabPanel Text="Arrival customs" Icon="@Icons.Material.Filled.Gavel">
-            <LookupEditor Kind="LookupKind.ArrivalCustoms" CountryId="CountryId" CanEdit="CanEdit"
-                          Values="_arrivalCustoms" Saved="ReloadAsync"
-                          Description="Customs offices in this country. Country-specific by nature." />
+            <AttributeEditor Kind="AttributeKind.ArrivalCustoms" CanEdit="CanEdit"
+                              Values="_arrivalCustoms" Saved="ReloadAsync"
+                              Description="Customs offices shipments clear through on arrival." />
         </MudTabPanel>
 
         <MudTabPanel Text="Export types" Icon="@Icons.Material.Filled.Category">
-            <LookupEditor Kind="LookupKind.ExportType" CountryId="null" CanEdit="CanEdit"
-                          Values="_exportTypes" Saved="ReloadAsync"
-                          Description="Shared across countries, and one of the three keys KPI targets are matched on." />
+            <AttributeEditor Kind="AttributeKind.ExportType" CanEdit="CanEdit"
+                              Values="_exportTypes" Saved="ReloadAsync"
+                              Description="Transit, direct transit, export, and so on." />
         </MudTabPanel>
 
         <MudTabPanel Text="Transport types" Icon="@Icons.Material.Filled.DirectionsBoat">
-            <LookupEditor Kind="LookupKind.TransportType" CountryId="null" CanEdit="CanEdit"
-                          Values="_transportTypes" Saved="ReloadAsync"
-                          Description="Road, sea, air, rail — shared across countries." />
+            <AttributeEditor Kind="AttributeKind.TransportType" CanEdit="CanEdit"
+                              Values="_transportTypes" Saved="ReloadAsync"
+                              Description="Road, sea, air, rail." />
         </MudTabPanel>
 
         <MudTabPanel Text="Loading points" Icon="@Icons.Material.Filled.Warehouse">
-            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
-                <MudText Typo="Typo.body2" Class="mud-text-secondary">
-                    Each loading point belongs to a country, and that country is what KPI targets match on.
-                </MudText>
-                <MudSpacer />
-                @if (CanEdit)
-                {
-                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
-                               StartIcon="@Icons.Material.Filled.Add" OnClick="() => EditLoadingPoint(null)">
-                        Add
-                    </MudButton>
-                }
-            </MudStack>
-
-            <MudTable Items="_loadingPoints" Dense="true" Hover="true" Elevation="0">
-                <HeaderContent>
-                    <MudTh>Code</MudTh><MudTh>Name</MudTh><MudTh>Loading country</MudTh>
-                    <MudTh>Active</MudTh><MudTh></MudTh>
-                </HeaderContent>
-                <RowTemplate>
-                    <MudTd>@context.Code</MudTd>
-                    <MudTd>@context.Name</MudTd>
-                    <MudTd>@context.CountryCode</MudTd>
-                    <MudTd><ActiveIcon IsActive="context.IsActive" /></MudTd>
-                    <MudTd>
-                        @if (CanEdit)
-                        {
-                            <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
-                                           OnClick="() => EditLoadingPoint(context)" />
-                        }
-                    </MudTd>
-                </RowTemplate>
-            </MudTable>
-
-            @if (_editingLoadingPoint is not null)
-            {
-                <MudPaper Elevation="0" Outlined="true" Class="pa-3 mt-3">
-                    <MudGrid Spacing="2">
-                        <MudItem xs="12" sm="3">
-                            <MudTextField T="string" @bind-Value="_lpCode" Label="Code" Variant="Variant.Outlined"
-                                          Margin="Margin.Dense" />
-                        </MudItem>
-                        <MudItem xs="12" sm="4">
-                            <MudTextField T="string" @bind-Value="_lpName" Label="Name" Variant="Variant.Outlined"
-                                          Margin="Margin.Dense" />
-                        </MudItem>
-                        <MudItem xs="12" sm="2">
-                            <MudTextField T="string" @bind-Value="_lpCountryCode" Label="Country code" MaxLength="2"
-                                          Variant="Variant.Outlined" Margin="Margin.Dense" />
-                        </MudItem>
-                        <MudItem xs="12" sm="2">
-                            <MudSwitch T="bool" @bind-Value="_lpActive" Label="Active" Color="Color.Primary" />
-                        </MudItem>
-                        <MudItem xs="12" Class="d-flex gap-2">
-                            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveLoadingPointAsync">
-                                Save
-                            </MudButton>
-                            <MudButton Variant="Variant.Text" OnClick="() => _editingLoadingPoint = null">Cancel</MudButton>
-                        </MudItem>
-                    </MudGrid>
-                </MudPaper>
-            }
+            <AttributeEditor Kind="AttributeKind.LoadingPoint" CanEdit="CanEdit"
+                              Values="_loadingPoints" Saved="ReloadAsync"
+                              Description="Where shipments are loaded before departure." />
         </MudTabPanel>
 
-        <MudTabPanel Text="Partners" Icon="@Icons.Material.Filled.Business">
-            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
-                <MudText Typo="Typo.body2" Class="mud-text-secondary">
-                    Logistics companies and brokers. External accounts are linked to one of these,
-                    which is what limits them to their own shipments.
-                </MudText>
-                <MudSpacer />
-                @if (CanEdit)
-                {
-                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
-                               StartIcon="@Icons.Material.Filled.Add" OnClick="() => EditPartner(null)">
-                        Add
-                    </MudButton>
-                }
-            </MudStack>
+        <MudTabPanel Text="Logistics companies" Icon="@Icons.Material.Filled.LocalShipping">
+            <AttributeEditor Kind="AttributeKind.LogisticsCompany" CanEdit="CanEdit"
+                              Values="_logisticsCompanies" Saved="ReloadAsync"
+                              Description="Carriers. A LogisticsCompany account is linked to one of these, which is what limits it to its own shipments." />
+        </MudTabPanel>
 
-            <MudTable Items="_partners" Dense="true" Hover="true" Elevation="0" GroupBy="_partnerGrouping">
-                <HeaderContent>
-                    <MudTh>Code</MudTh><MudTh>Name</MudTh><MudTh>Active</MudTh><MudTh></MudTh>
-                </HeaderContent>
-                <GroupHeaderTemplate>
-                    <MudTh Class="mud-table-cell-custom-group" colspan="4">
-                        @(context.Key is PartnerType type ? type.ToString() : string.Empty)
-                    </MudTh>
-                </GroupHeaderTemplate>
-                <RowTemplate>
-                    <MudTd>@context.Code</MudTd>
-                    <MudTd>@context.Name</MudTd>
-                    <MudTd><ActiveIcon IsActive="context.IsActive" /></MudTd>
-                    <MudTd>
-                        @if (CanEdit)
-                        {
-                            <MudIconButton Icon="@Icons.Material.Filled.Edit" Size="Size.Small"
-                                           OnClick="() => EditPartner(context)" />
-                        }
-                    </MudTd>
-                </RowTemplate>
-            </MudTable>
-
-            @if (_editingPartner is not null)
-            {
-                <MudPaper Elevation="0" Outlined="true" Class="pa-3 mt-3">
-                    <MudGrid Spacing="2">
-                        <MudItem xs="12" sm="3">
-                            <MudSelect T="PartnerType" @bind-Value="_partnerType" Label="Type"
-                                       Variant="Variant.Outlined" Margin="Margin.Dense">
-                                @foreach (var type in Enum.GetValues<PartnerType>())
-                                {
-                                    <MudSelectItem T="PartnerType" Value="@type">@type</MudSelectItem>
-                                }
-                            </MudSelect>
-                        </MudItem>
-                        <MudItem xs="12" sm="3">
-                            <MudTextField T="string" @bind-Value="_partnerCode" Label="Code"
-                                          Variant="Variant.Outlined" Margin="Margin.Dense" />
-                        </MudItem>
-                        <MudItem xs="12" sm="4">
-                            <MudTextField T="string" @bind-Value="_partnerName" Label="Name"
-                                          Variant="Variant.Outlined" Margin="Margin.Dense" />
-                        </MudItem>
-                        <MudItem xs="12" sm="2">
-                            <MudSwitch T="bool" @bind-Value="_partnerActive" Label="Active" Color="Color.Primary" />
-                        </MudItem>
-                        <MudItem xs="12" Class="d-flex gap-2">
-                            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SavePartnerAsync">Save</MudButton>
-                            <MudButton Variant="Variant.Text" OnClick="() => _editingPartner = null">Cancel</MudButton>
-                        </MudItem>
-                    </MudGrid>
-                </MudPaper>
-            }
+        <MudTabPanel Text="Brokers" Icon="@Icons.Material.Filled.Business">
+            <AttributeEditor Kind="AttributeKind.Broker" CanEdit="CanEdit"
+                              Values="_brokers" Saved="ReloadAsync"
+                              Description="Customs brokers. A Broker account is linked to one of these, which is what limits it to its own shipments." />
         </MudTabPanel>
 
         <MudTabPanel Text="Stores" Icon="@Icons.Material.Filled.Store">
@@ -241,23 +123,13 @@ else
 @code {
     protected override string PageKey => PageKeys.AdminMasterData;
 
-    private IReadOnlyList<LookupDto> _arrivalCustoms = [];
-    private IReadOnlyList<LookupDto> _exportTypes = [];
-    private IReadOnlyList<LookupDto> _transportTypes = [];
-    private IReadOnlyList<LoadingPointDto> _loadingPoints = [];
-    private IReadOnlyList<PartnerDto> _partners = [];
+    private IReadOnlyList<AttributeDto> _arrivalCustoms = [];
+    private IReadOnlyList<AttributeDto> _exportTypes = [];
+    private IReadOnlyList<AttributeDto> _transportTypes = [];
+    private IReadOnlyList<AttributeDto> _loadingPoints = [];
+    private IReadOnlyList<AttributeDto> _logisticsCompanies = [];
+    private IReadOnlyList<AttributeDto> _brokers = [];
     private IReadOnlyList<StoreDto> _stores = [];
-
-    private readonly TableGroupDefinition<PartnerDto> _partnerGrouping = new() { Selector = p => p.Type };
-
-    private LoadingPointDto? _editingLoadingPoint;
-    private string _lpCode = string.Empty, _lpName = string.Empty, _lpCountryCode = string.Empty;
-    private bool _lpActive = true;
-
-    private PartnerDto? _editingPartner;
-    private PartnerType _partnerType = PartnerType.LogisticsCompany;
-    private string _partnerCode = string.Empty, _partnerName = string.Empty;
-    private bool _partnerActive = true;
 
     private StoreDto? _editingStore;
     private string _storeCode = string.Empty, _storeName = string.Empty;
@@ -267,66 +139,13 @@ else
 
     private async Task ReloadAsync()
     {
-        _arrivalCustoms = await Reference.GetLookupsAsync(LookupKind.ArrivalCustoms, CountryId, activeOnly: false);
-        _exportTypes = await Reference.GetLookupsAsync(LookupKind.ExportType, activeOnly: false);
-        _transportTypes = await Reference.GetLookupsAsync(LookupKind.TransportType, activeOnly: false);
-        _loadingPoints = await Reference.GetLoadingPointsAsync(activeOnly: false);
-        _partners = await Reference.GetPartnersAsync(activeOnly: false);
+        _arrivalCustoms = await Reference.GetIntegrationAttributesAsync(AttributeKind.ArrivalCustoms);
+        _exportTypes = await Reference.GetIntegrationAttributesAsync(AttributeKind.ExportType);
+        _transportTypes = await Reference.GetIntegrationAttributesAsync(AttributeKind.TransportType);
+        _loadingPoints = await Reference.GetIntegrationAttributesAsync(AttributeKind.LoadingPoint);
+        _logisticsCompanies = await Reference.GetIntegrationAttributesAsync(AttributeKind.LogisticsCompany);
+        _brokers = await Reference.GetIntegrationAttributesAsync(AttributeKind.Broker);
         _stores = await Reference.GetStoresAsync(CountryId, activeOnly: false);
-    }
-
-    private void EditLoadingPoint(LoadingPointDto? point)
-    {
-        _editingLoadingPoint = point ?? new LoadingPointDto(0, string.Empty, string.Empty, string.Empty, true);
-        _lpCode = _editingLoadingPoint.Code;
-        _lpName = _editingLoadingPoint.Name;
-        _lpCountryCode = _editingLoadingPoint.CountryCode;
-        _lpActive = _editingLoadingPoint.IsActive;
-    }
-
-    private async Task SaveLoadingPointAsync()
-    {
-        try
-        {
-            await Master.SaveLoadingPointAsync(new LoadingPointInput(
-                _editingLoadingPoint!.Id == 0 ? null : _editingLoadingPoint.Id,
-                _lpCode, _lpName, _lpCountryCode, _lpActive));
-
-            _editingLoadingPoint = null;
-            Snackbar.Add("Loading point saved.", Severity.Success);
-            await ReloadAsync();
-        }
-        catch (Exception exception)
-        {
-            Snackbar.Add(exception.Message, Severity.Error);
-        }
-    }
-
-    private void EditPartner(PartnerDto? partner)
-    {
-        _editingPartner = partner ?? new PartnerDto(0, string.Empty, string.Empty, PartnerType.LogisticsCompany, true);
-        _partnerType = _editingPartner.Type;
-        _partnerCode = _editingPartner.Code;
-        _partnerName = _editingPartner.Name;
-        _partnerActive = _editingPartner.IsActive;
-    }
-
-    private async Task SavePartnerAsync()
-    {
-        try
-        {
-            await Master.SavePartnerAsync(new PartnerInput(
-                _editingPartner!.Id == 0 ? null : _editingPartner.Id,
-                _partnerType, _partnerCode, _partnerName, _partnerActive));
-
-            _editingPartner = null;
-            Snackbar.Add("Partner saved.", Severity.Success);
-            await ReloadAsync();
-        }
-        catch (Exception exception)
-        {
-            Snackbar.Add(exception.Message, Severity.Error);
-        }
     }
 
     private void EditStore(StoreDto? store)

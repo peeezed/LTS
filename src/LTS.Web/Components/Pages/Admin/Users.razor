@@ -66,7 +66,7 @@ else
                 </CellTemplate>
             </TemplateColumn>
             <TemplateColumn Title="Company">
-                <CellTemplate>@(context.Item.PartnerName ?? "—")</CellTemplate>
+                <CellTemplate>@(context.Item.CompanyDisplay ?? "—")</CellTemplate>
             </TemplateColumn>
             <TemplateColumn Title="Countries" Sortable="false">
                 <CellTemplate>
@@ -135,7 +135,8 @@ else
 @code {
     private IReadOnlyList<UserRow> _users = [];
     private IReadOnlyList<CountryDto> _countries = [];
-    private IReadOnlyList<PartnerDto> _partners = [];
+    private IReadOnlyList<AttributeDto> _logisticsCompanies = [];
+    private IReadOnlyList<AttributeDto> _brokers = [];
     private string? _search;
     private string? _issuedPassword;
     private string? _issuedFor;
@@ -155,7 +156,8 @@ else
 
         _canEdit = permissions.CanEdit(PageKeys.AdminUsers, null);
         _countries = await Reference.GetIntegrationCountriesAsync();
-        _partners = await Reference.GetPartnersAsync();
+        _logisticsCompanies = await Reference.GetIntegrationAttributesAsync(AttributeKind.LogisticsCompany);
+        _brokers = await Reference.GetIntegrationAttributesAsync(AttributeKind.Broker);
 
         await LoadAsync();
         _ready = true;
@@ -174,7 +176,7 @@ else
 
         return row.FullName.Contains(term, StringComparison.OrdinalIgnoreCase)
                || row.Email.Contains(term, StringComparison.OrdinalIgnoreCase)
-               || (row.PartnerName?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false);
+               || (row.CompanyDisplay?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false);
     }
 
     private async Task EditAsync(UserRow? row)
@@ -185,7 +187,8 @@ else
         {
             { x => x.Existing, existing },
             { x => x.Countries, _countries },
-            { x => x.Partners, _partners }
+            { x => x.LogisticsCompanies, _logisticsCompanies },
+            { x => x.Brokers, _brokers }
         };
 
         var dialog = await Dialogs.ShowAsync<UserDialog>(

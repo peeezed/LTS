@@ -98,7 +98,7 @@ internal static class TestDb
             [UserPermissions.Key(PageKeys.Shipments, Turkey)] = new(true, false)
         };
 
-        return new UserPermissions(Guid.NewGuid(), userType, partnerId, countries ?? [Turkey, Poland], pages);
+        return new UserPermissions(Guid.NewGuid(), userType, partnerId, null, countries ?? [Turkey, Poland], pages);
     }
 }
 

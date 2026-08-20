@@ -32,7 +32,7 @@ public sealed class PermissionService(
         var user = await db.Users
             .AsNoTracking()
             .Where(u => u.Id == userId && u.IsActive)
-            .Select(u => new { u.Id, u.UserType, u.PartnerId })
+            .Select(u => new { u.Id, u.UserType, u.PartnerId, u.SupplierCompanyCode })
             .FirstOrDefaultAsync(cancellationToken);
 
         // A deactivated or deleted account keeps its cookie until it expires, so it has to
@@ -61,7 +61,8 @@ public sealed class PermissionService(
             g => new PagePermission(g.CanView, g.CanEdit),
             StringComparer.OrdinalIgnoreCase);
 
-        var permissions = new UserPermissions(user.Id, user.UserType, user.PartnerId, countries, pages);
+        var permissions = new UserPermissions(
+            user.Id, user.UserType, user.PartnerId, user.SupplierCompanyCode, countries, pages);
         cache.Set(key, permissions, CacheDuration);
 
         return permissions;

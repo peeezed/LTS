@@ -1,3 +1,4 @@
+using LTS.Application.Reference;
 using LTS.Domain.Entities;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
@@ -29,6 +30,18 @@ public class LtsIntegrationDbContext(DbContextOptions<LtsIntegrationDbContext> o
     public DbSet<LtsIntegrationShipmentTransferDate> ShipmentTransferDates => Set<LtsIntegrationShipmentTransferDate>();
     public DbSet<LtsIntegrationBox> Boxes => Set<LtsIntegrationBox>();
 
+    // The seven shipment attribute lookup tables all share the same Code+Description shape, so
+    // one shared-type entity (LtsIntegrationAttribute) is mapped onto each rather than declaring
+    // six near-identical POCOs. LTS_ArrivalCountries is deliberately not mapped: Arrival Country
+    // is resolved from the shipment's real receiving country (see
+    // IntegrationShipmentQueryService.BackfillArrivalCountryAsync), not this table.
+    public DbSet<LtsIntegrationAttribute> ArrivalCustomsAttributes => Set<LtsIntegrationAttribute>("ArrivalCustomsAttribute");
+    public DbSet<LtsIntegrationAttribute> ExportTypeAttributes => Set<LtsIntegrationAttribute>("ExportTypeAttribute");
+    public DbSet<LtsIntegrationAttribute> TransportTypeAttributes => Set<LtsIntegrationAttribute>("TransportTypeAttribute");
+    public DbSet<LtsIntegrationAttribute> LoadingPointAttributes => Set<LtsIntegrationAttribute>("LoadingPointAttribute");
+    public DbSet<LtsIntegrationAttribute> LogisticsCompanyAttributes => Set<LtsIntegrationAttribute>("LogisticsCompanyAttribute");
+    public DbSet<LtsIntegrationAttribute> BrokerAttributes => Set<LtsIntegrationAttribute>("BrokerAttribute");
+
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
@@ -59,6 +72,7 @@ public class LtsIntegrationDbContext(DbContextOptions<LtsIntegrationDbContext> o
             // LTS_Users.UserType is nvarchar (e.g. "Admin"), matching this database's convention
             // of storing enums as readable text - EF's default is int, so this must be explicit.
             entity.Property(u => u.UserType).HasConversion<string>().HasMaxLength(50);
+            entity.Property(u => u.SupplierCompanyCode).HasColumnName("SupplierCompanyCode").HasMaxLength(50);
             entity.Ignore(u => u.Partner);
             entity.Ignore(u => u.CountryAccess);
             entity.Ignore(u => u.PagePermissions);
@@ -148,7 +162,52 @@ public class LtsIntegrationDbContext(DbContextOptions<LtsIntegrationDbContext> o
             entity.ToTable("LTS_Boxes");
             entity.HasKey(b => new { b.TransferNo, b.PackageNo });
         });
+
+        foreach (var (name, table) in new[]
+        {
+            ("ArrivalCustomsAttribute", "LTS_ArrivalCustoms"),
+            ("ExportTypeAttribute", "LTS_ExportTypes"),
+            ("TransportTypeAttribute", "LTS_TransportTypes"),
+            ("LoadingPointAttribute", "LTS_LoadingPoints"),
+            ("LogisticsCompanyAttribute", "LTS_LogisticsCompanies"),
+            ("BrokerAttribute", "LTS_Brokers")
+        })
+        {
+            builder.SharedTypeEntity<LtsIntegrationAttribute>(name, entity =>
+            {
+                entity.ToTable(table);
+                entity.HasKey(a => a.Id);
+                entity.Property(a => a.Id).HasColumnName("ID");
+            });
+        }
     }
+}
+
+/// <summary>
+/// One row of any of the seven shipment attribute lookup tables (LTS_ArrivalCustoms,
+/// LTS_ExportTypes, LTS_TransportTypes, LTS_LoadingPoints, LTS_LogisticsCompanies, LTS_Brokers) -
+/// each is just an ID/Code/Description, so one shared-type entity is mapped onto all of them.
+/// </summary>
+public class LtsIntegrationAttribute
+{
+    public int Id { get; set; }
+    public required string Code { get; set; }
+    public required string Description { get; set; }
+}
+
+/// <summary>Picks the right DbSet for an <see cref="AttributeKind"/>, shared by every caller that reads or writes one.</summary>
+public static class AttributeTables
+{
+    public static DbSet<LtsIntegrationAttribute> For(LtsIntegrationDbContext db, AttributeKind kind) => kind switch
+    {
+        AttributeKind.ArrivalCustoms => db.ArrivalCustomsAttributes,
+        AttributeKind.ExportType => db.ExportTypeAttributes,
+        AttributeKind.TransportType => db.TransportTypeAttributes,
+        AttributeKind.LoadingPoint => db.LoadingPointAttributes,
+        AttributeKind.LogisticsCompany => db.LogisticsCompanyAttributes,
+        AttributeKind.Broker => db.BrokerAttributes,
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
+    };
 }
 
 /// <summary>One row of LTS_Countries in the external LTS_Integration database.</summary>
@@ -165,8 +224,9 @@ public class LtsIntegrationCountry
 /// One row of LTS_Shipments: the header an integration writes for a shipment, before the app
 /// reads it. CurrentStatus/Performance are the display strings from StatusDisplay
 /// (TrackingStatus/PerformanceStatus.ToDisplay()), not enum names - e.g. "Not Started", not
-/// "NotStarted". The seven attribute columns are free text, not ids into the LTS_-prefixed
-/// attribute tables, so they are shown as-is rather than joined.
+/// "NotStarted". The six non-country attribute columns are free text matching the Description of
+/// a row in the corresponding LTS_-prefixed lookup table, not that row's id - resolved by
+/// IntegrationShipmentQueryService, with the raw text shown as a fallback when nothing matches.
 /// </summary>
 public class LtsIntegrationShipment
 {

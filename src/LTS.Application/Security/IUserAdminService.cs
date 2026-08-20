@@ -9,6 +9,14 @@ public sealed record UserRow
     public required string Email { get; init; }
     public required string FullName { get; init; }
     public required UserType UserType { get; init; }
+
+    /// <summary>
+    /// The account's company, for display - "Code - Description" resolved from
+    /// LTS_LogisticsCompanies/LTS_Brokers when SupplierCompanyCode is set, otherwise the old
+    /// database's Partner name for accounts not yet re-linked, otherwise null.
+    /// </summary>
+    public string? CompanyDisplay { get; init; }
+
     public string? PartnerName { get; init; }
     public int? PartnerId { get; init; }
     public bool IsActive { get; init; }
@@ -25,8 +33,12 @@ public sealed record UserInput
     public required string FullName { get; init; }
     public required UserType UserType { get; init; }
 
-    /// <summary>Required for broker and logistics-company accounts; ignored for internal staff.</summary>
-    public int? PartnerId { get; init; }
+    /// <summary>
+    /// The Code of a row in LTS_LogisticsCompanies (LogisticsCompany accounts) or LTS_Brokers
+    /// (Broker accounts). Required for broker and logistics-company accounts; ignored for
+    /// internal staff.
+    /// </summary>
+    public string? SupplierCompanyCode { get; init; }
 
     public bool IsActive { get; init; } = true;
 

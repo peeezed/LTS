@@ -20,7 +20,7 @@ namespace LTS.Infrastructure.Tracking;
 /// performance parsing, box-level rollups) is done in memory on the already-paged result.
 /// </summary>
 public sealed class IntegrationShipmentQueryService(
-    IDbContextFactory<LtsIntegrationDbContext> dbFactory, LtsDbContext partnersDb, IClock clock) : IShipmentQueryService
+    IDbContextFactory<LtsIntegrationDbContext> dbFactory, IClock clock) : IShipmentQueryService
 {
     public async Task<PagedResult<ShipmentRow>> GetShipmentsAsync(
         int countryId,
@@ -34,13 +34,13 @@ public sealed class IntegrationShipmentQueryService(
             return PagedResult<ShipmentRow>.Empty;
         }
 
-        var (restricted, partnerName) = await ResolvePartnerFilterAsync(permissions, cancellationToken);
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+
+        var (restricted, partnerName) = await ResolvePartnerFilterAsync(db, permissions, cancellationToken);
         if (restricted && partnerName is null)
         {
             return PagedResult<ShipmentRow>.Empty;
         }
-
-        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
 
         var countryInfo = await CountryInfoForAsync(db, countryId, cancellationToken);
         if (countryInfo is not { } info)
@@ -66,6 +66,8 @@ public sealed class IntegrationShipmentQueryService(
             .Where(d => references.Contains(d.ReferenceNo))
             .ToDictionaryAsync(d => d.ReferenceNo, cancellationToken);
 
+        var attributes = await ResolveAttributesAsync(db, page, cancellationToken);
+
         var rows = page.Select(s =>
         {
             var d = dates.GetValueOrDefault(s.ReferenceNo);
@@ -77,13 +79,13 @@ public sealed class IntegrationShipmentQueryService(
                 InvoiceNo = s.InvoiceNo,
                 InvoiceDate = s.InvoiceDate,
                 ArrivalCountry = s.ArrivalCountry,
-                ArrivalCustoms = s.ArrivalCustoms,
-                ExportType = s.ExportType,
-                TransportType = s.TransportType,
-                LoadingPoint = s.LoadingPoint,
+                ArrivalCustoms = attributes.ArrivalCustoms.Resolve(s.ArrivalCustoms),
+                ExportType = attributes.ExportType.Resolve(s.ExportType),
+                TransportType = attributes.TransportType.Resolve(s.TransportType),
+                LoadingPoint = attributes.LoadingPoint.Resolve(s.LoadingPoint),
                 LoadingCountryCode = null,
-                LogisticsCompany = s.LogisticsCompany,
-                Broker = s.BrokerCompany,
+                LogisticsCompany = attributes.LogisticsCompany.Resolve(s.LogisticsCompany),
+                Broker = attributes.Broker.Resolve(s.BrokerCompany),
                 LoadingDate = d?.LoadingDate,
                 DepartureCustomsClearanceDate = d?.CustomsClearanceDate,
                 DepartureDate = d?.DepartureDate,
@@ -115,13 +117,13 @@ public sealed class IntegrationShipmentQueryService(
             return PagedResult<TransferRow>.Empty;
         }
 
-        var (restricted, partnerName) = await ResolvePartnerFilterAsync(permissions, cancellationToken);
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+
+        var (restricted, partnerName) = await ResolvePartnerFilterAsync(db, permissions, cancellationToken);
         if (restricted && partnerName is null)
         {
             return PagedResult<TransferRow>.Empty;
         }
-
-        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
 
         var countryInfo = await CountryInfoForAsync(db, countryId, cancellationToken);
         if (countryInfo is not { } info)
@@ -244,15 +246,15 @@ public sealed class IntegrationShipmentQueryService(
             return null;
         }
 
-        var (restricted, partnerName) = await ResolvePartnerFilterAsync(permissions, cancellationToken);
+        reference = reference.Trim();
+
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+
+        var (restricted, partnerName) = await ResolvePartnerFilterAsync(db, permissions, cancellationToken);
         if (restricted && partnerName is null)
         {
             return null;
         }
-
-        reference = reference.Trim();
-
-        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
 
         var countryInfo = await CountryInfoForAsync(db, countryId, cancellationToken);
         if (countryInfo is not { } info)
@@ -289,6 +291,8 @@ public sealed class IntegrationShipmentQueryService(
             .Where(b => transferNos.Contains(b.TransferNo))
             .ToListAsync(cancellationToken);
 
+        var attributes = await ResolveAttributesAsync(db, [shipment], cancellationToken);
+
         return new ShipmentDetail
         {
             Id = shipment.Id,
@@ -297,12 +301,12 @@ public sealed class IntegrationShipmentQueryService(
             InvoiceNo = shipment.InvoiceNo,
             InvoiceDate = shipment.InvoiceDate,
             ArrivalCountry = shipment.ArrivalCountry,
-            ArrivalCustoms = shipment.ArrivalCustoms,
-            ExportType = shipment.ExportType,
-            TransportType = shipment.TransportType,
-            LoadingPoint = shipment.LoadingPoint,
-            LogisticsCompany = shipment.LogisticsCompany,
-            Broker = shipment.BrokerCompany,
+            ArrivalCustoms = attributes.ArrivalCustoms.Resolve(shipment.ArrivalCustoms),
+            ExportType = attributes.ExportType.Resolve(shipment.ExportType),
+            TransportType = attributes.TransportType.Resolve(shipment.TransportType),
+            LoadingPoint = attributes.LoadingPoint.Resolve(shipment.LoadingPoint),
+            LogisticsCompany = attributes.LogisticsCompany.Resolve(shipment.LogisticsCompany),
+            Broker = attributes.Broker.Resolve(shipment.BrokerCompany),
             CurrentStatus = ParseStatus(shipment.CurrentStatus),
             Performance = ParsePerformance(shipment.Performance),
             TransferCount = shipment.TotalTransfers ?? 0,
@@ -358,13 +362,13 @@ public sealed class IntegrationShipmentQueryService(
             return InTransitSummary.Empty;
         }
 
-        var (restricted, partnerName) = await ResolvePartnerFilterAsync(permissions, cancellationToken);
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+
+        var (restricted, partnerName) = await ResolvePartnerFilterAsync(db, permissions, cancellationToken);
         if (restricted && partnerName is null)
         {
             return InTransitSummary.Empty;
         }
-
-        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
 
         var countryInfo = await CountryInfoForAsync(db, countryId, cancellationToken);
         if (countryInfo is not { } info)
@@ -463,29 +467,75 @@ public sealed class IntegrationShipmentQueryService(
             : (country.CustomerCode, country.CountryDescription);
     }
 
+    /// <summary>One resolved lookup per shipment attribute, keyed by the raw value stored on the shipment.</summary>
+    private sealed record AttributeLookups(
+        Dictionary<string, string> ArrivalCustoms,
+        Dictionary<string, string> ExportType,
+        Dictionary<string, string> TransportType,
+        Dictionary<string, string> LoadingPoint,
+        Dictionary<string, string> LogisticsCompany,
+        Dictionary<string, string> Broker);
+
     /// <summary>
-    /// Restricts a Broker/LogisticsCompany account to its own shipments, matched by the partner's
-    /// name against LTS_Shipments.LogisticsCompany/BrokerCompany (free text there, so this is a
-    /// name match rather than a real foreign key). Not restricted when the caller is not
-    /// partner-scoped. Restricted-with-no-name means the account's partner could not be resolved
-    /// at all, so the caller should treat that as "matches nothing" rather than "unrestricted".
+    /// Resolves the six free-text attribute columns (everything but ArrivalCountry, which comes
+    /// from the real receiving country) against their LTS_-prefixed lookup tables, matching by
+    /// Description - LTS_Shipments carries the attribute's Description text, not its Code. One
+    /// batched query per attribute across the whole set of shipments, rather than one query per
+    /// shipment per attribute.
     /// </summary>
-    private async Task<(bool Restricted, string? PartnerName)> ResolvePartnerFilterAsync(
-        UserPermissions permissions, CancellationToken cancellationToken)
+    private static async Task<AttributeLookups> ResolveAttributesAsync(
+        LtsIntegrationDbContext db, IReadOnlyList<LtsIntegrationShipment> shipments, CancellationToken cancellationToken) =>
+        new(
+            await ResolveOneAsync(db.ArrivalCustomsAttributes, shipments.Select(s => s.ArrivalCustoms), cancellationToken),
+            await ResolveOneAsync(db.ExportTypeAttributes, shipments.Select(s => s.ExportType), cancellationToken),
+            await ResolveOneAsync(db.TransportTypeAttributes, shipments.Select(s => s.TransportType), cancellationToken),
+            await ResolveOneAsync(db.LoadingPointAttributes, shipments.Select(s => s.LoadingPoint), cancellationToken),
+            await ResolveOneAsync(db.LogisticsCompanyAttributes, shipments.Select(s => s.LogisticsCompany), cancellationToken),
+            await ResolveOneAsync(db.BrokerAttributes, shipments.Select(s => s.BrokerCompany), cancellationToken));
+
+    private static async Task<Dictionary<string, string>> ResolveOneAsync(
+        IQueryable<LtsIntegrationAttribute> table, IEnumerable<string?> rawValues, CancellationToken cancellationToken)
+    {
+        var values = rawValues.Where(v => !string.IsNullOrWhiteSpace(v)).Select(v => v!).Distinct().ToList();
+        if (values.Count == 0)
+        {
+            return [];
+        }
+
+        var matches = await table.AsNoTracking()
+            .Where(a => values.Contains(a.Description))
+            .ToListAsync(cancellationToken);
+
+        return matches.ToDictionary(a => a.Description, a => $"{a.Code} - {a.Description}");
+    }
+
+    /// <summary>
+    /// Restricts a Broker/LogisticsCompany account to its own shipments, matched by its
+    /// SupplierCompanyCode's Description (via LTS_LogisticsCompanies/LTS_Brokers) against
+    /// LTS_Shipments.LogisticsCompany/BrokerCompany - those columns hold Description text, not a
+    /// code, matching how the same attribute is resolved for display. Not restricted when the
+    /// caller is not partner-scoped. Restricted-with-no-name means the account's company could
+    /// not be resolved at all, so the caller should treat that as "matches nothing" rather than
+    /// "unrestricted".
+    /// </summary>
+    private static async Task<(bool Restricted, string? CompanyName)> ResolvePartnerFilterAsync(
+        LtsIntegrationDbContext db, UserPermissions permissions, CancellationToken cancellationToken)
     {
         if (!permissions.IsPartnerScoped)
         {
             return (false, null);
         }
 
-        if (permissions.PartnerId is not { } partnerId)
+        if (permissions.SupplierCompanyCode is not { } code)
         {
             return (true, null);
         }
 
-        var name = await partnersDb.Partners.AsNoTracking()
-            .Where(p => p.Id == partnerId)
-            .Select(p => p.Name)
+        var table = permissions.UserType == UserType.Broker ? db.BrokerAttributes : db.LogisticsCompanyAttributes;
+
+        var name = await table.AsNoTracking()
+            .Where(a => a.Code == code)
+            .Select(a => a.Description)
             .FirstOrDefaultAsync(cancellationToken);
 
         return (true, name);
@@ -604,4 +654,11 @@ public sealed class IntegrationShipmentQueryService(
     /// business key is enough.
     /// </summary>
     private static int SyntheticId(string transferNo) => transferNo.GetHashCode();
+}
+
+internal static class AttributeLookupExtensions
+{
+    /// <summary>The resolved "Code - Description" for a raw attribute value, or the raw value itself when unresolved.</summary>
+    public static string? Resolve(this IReadOnlyDictionary<string, string> lookup, string? raw) =>
+        raw is null ? null : lookup.GetValueOrDefault(raw, raw);
 }

@@ -12,11 +12,12 @@ using Microsoft.EntityFrameworkCore;
 namespace LTS.Infrastructure.Security;
 
 /// <summary>
-/// Accounts and their grants live in LtsIntegrationDbContext; partner names are still looked up
-/// from LtsDbContext, since Partners has not moved yet. Each public method creates its own
-/// short-lived LtsIntegrationDbContext via the factory rather than sharing one across the
-/// request/circuit - it used to share the scoped instance with Identity's own UserManager store,
-/// which occasionally raced with it.
+/// Accounts and their grants live in LtsIntegrationDbContext. A Broker/LogisticsCompany account's
+/// company is SupplierCompanyCode, a Code into LTS_LogisticsCompanies/LTS_Brokers; the old
+/// database's Partner (via PartnerId) is only read for display, for accounts not yet re-linked.
+/// Each public method creates its own short-lived LtsIntegrationDbContext via the factory rather
+/// than sharing one across the request/circuit - it used to share the scoped instance with
+/// Identity's own UserManager store, which occasionally raced with it.
 /// </summary>
 public sealed class UserAdminService(
     IDbContextFactory<LtsIntegrationDbContext> dbFactory,
@@ -48,6 +49,7 @@ public sealed class UserAdminService(
                 u.FullName,
                 u.UserType,
                 u.PartnerId,
+                u.SupplierCompanyCode,
                 u.IsActive,
                 u.MustChangePassword,
                 u.LastLoginAt,
@@ -55,20 +57,38 @@ public sealed class UserAdminService(
             })
             .ToListAsync(cancellationToken);
 
+        // Resolved the same way the shipment attributes are: match the account's code against
+        // the lookup table's Code column, show "Code - Description".
+        var logisticsCodes = await db.LogisticsCompanyAttributes.AsNoTracking()
+            .ToDictionaryAsync(a => a.Code, a => $"{a.Code} - {a.Description}", cancellationToken);
+        var brokerCodes = await db.BrokerAttributes.AsNoTracking()
+            .ToDictionaryAsync(a => a.Code, a => $"{a.Code} - {a.Description}", cancellationToken);
+
         return
         [
-            .. rows.Select(u => new UserRow
+            .. rows.Select(u =>
             {
-                Id = u.Id,
-                Email = u.Email ?? string.Empty,
-                FullName = u.FullName,
-                UserType = u.UserType,
-                PartnerId = u.PartnerId,
-                PartnerName = u.PartnerId is { } partnerId ? partnerNames.GetValueOrDefault(partnerId) : null,
-                IsActive = u.IsActive,
-                MustChangePassword = u.MustChangePassword,
-                LastLoginAt = u.LastLoginAt,
-                Countries = [.. u.CountryIds.Select(id => countryCodes.GetValueOrDefault(id, "?"))]
+                var partnerName = u.PartnerId is { } partnerId ? partnerNames.GetValueOrDefault(partnerId) : null;
+
+                var companyDisplay = u.SupplierCompanyCode is null
+                    ? null
+                    : (u.UserType == UserType.Broker ? brokerCodes : logisticsCodes)
+                        .GetValueOrDefault(u.SupplierCompanyCode, u.SupplierCompanyCode);
+
+                return new UserRow
+                {
+                    Id = u.Id,
+                    Email = u.Email ?? string.Empty,
+                    FullName = u.FullName,
+                    UserType = u.UserType,
+                    PartnerId = u.PartnerId,
+                    PartnerName = partnerName,
+                    CompanyDisplay = companyDisplay ?? partnerName,
+                    IsActive = u.IsActive,
+                    MustChangePassword = u.MustChangePassword,
+                    LastLoginAt = u.LastLoginAt,
+                    Countries = [.. u.CountryIds.Select(id => countryCodes.GetValueOrDefault(id, "?"))]
+                };
             })
         ];
     }
@@ -103,7 +123,7 @@ public sealed class UserAdminService(
             Email = user.Email ?? string.Empty,
             FullName = user.FullName,
             UserType = user.UserType,
-            PartnerId = user.PartnerId,
+            SupplierCompanyCode = user.SupplierCompanyCode,
             IsActive = user.IsActive,
             CountryIds = countries,
             Permissions = grants
@@ -114,9 +134,9 @@ public sealed class UserAdminService(
     {
         ArgumentNullException.ThrowIfNull(input);
 
-        // An external account without a partner would see every shipment in its countries,
-        // which is the opposite of what the partner scope is for.
-        if (input.UserType is UserType.Broker or UserType.LogisticsCompany && input.PartnerId is null)
+        // An external account without a company would see every shipment in its countries,
+        // which is the opposite of what the scope is for.
+        if (input.UserType is UserType.Broker or UserType.LogisticsCompany && input.SupplierCompanyCode is null)
         {
             return UserSaveResult.Failed(
                 $"A {input.UserType.ToDisplay()} account must be linked to a company.");
@@ -138,7 +158,8 @@ public sealed class UserAdminService(
             EmailConfirmed = true,
             FullName = input.FullName.Trim(),
             UserType = input.UserType,
-            PartnerId = input.UserType is UserType.Broker or UserType.LogisticsCompany ? input.PartnerId : null,
+            SupplierCompanyCode = input.UserType is UserType.Broker or UserType.LogisticsCompany
+                ? input.SupplierCompanyCode : null,
             IsActive = input.IsActive,
             MustChangePassword = true,
             CreatedAt = clock.UtcNow,
@@ -173,7 +194,8 @@ public sealed class UserAdminService(
 
         user.FullName = input.FullName.Trim();
         user.UserType = input.UserType;
-        user.PartnerId = input.UserType is UserType.Broker or UserType.LogisticsCompany ? input.PartnerId : null;
+        user.SupplierCompanyCode = input.UserType is UserType.Broker or UserType.LogisticsCompany
+            ? input.SupplierCompanyCode : null;
         user.IsActive = input.IsActive;
 
         if (!string.Equals(user.Email, input.Email.Trim(), StringComparison.OrdinalIgnoreCase))

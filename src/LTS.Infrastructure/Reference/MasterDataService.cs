@@ -132,6 +132,36 @@ public sealed class MasterDataService(
         return store.Id;
     }
 
+    public async Task<int> SaveIntegrationAttributeAsync(
+        AttributeKind kind, AttributeInput input, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+
+        var code = Require(input.Code, "Code").ToUpperInvariant();
+
+        await using var integrationDb = await integrationDbFactory.CreateDbContextAsync(cancellationToken);
+        var table = AttributeTables.For(integrationDb, kind);
+
+        LtsIntegrationAttribute attribute;
+        if (input.Id is { } id)
+        {
+            attribute = await table.FirstOrDefaultAsync(a => a.Id == id, cancellationToken)
+                ?? throw new InvalidOperationException($"Attribute {id} does not exist.");
+        }
+        else
+        {
+            attribute = new LtsIntegrationAttribute { Code = code, Description = input.Description };
+            table.Add(attribute);
+        }
+
+        attribute.Code = code;
+        attribute.Description = Require(input.Description, "Description");
+
+        await integrationDb.SaveChangesAsync(cancellationToken);
+
+        return attribute.Id;
+    }
+
     private async Task<TEntity> FindOrCreateAsync<TEntity>(
         DbSet<TEntity> set,
         int? id,

@@ -22,6 +22,15 @@ public sealed record StoreDto(int Id, string Code, string Name, int CountryId, b
     public string Display => $"{Code} - {Name}";
 }
 
+/// <summary>Which of LTS_Integration's shipment attribute lookup tables to read or write.</summary>
+public enum AttributeKind { ArrivalCustoms, ExportType, TransportType, LoadingPoint, LogisticsCompany, Broker }
+
+/// <summary>One row of one of LTS_Integration's Code+Description shipment attribute tables.</summary>
+public sealed record AttributeDto(int Id, string Code, string Description)
+{
+    public string Display => $"{Code} - {Description}";
+}
+
 /// <summary>
 /// Reads the shared lists that fill the filter dropdowns, the admin master-data pages and the
 /// Excel import validators.
@@ -65,4 +74,11 @@ public interface IReferenceDataService
 
     Task<IReadOnlyList<StoreDto>> GetStoresAsync(
         int countryId, bool activeOnly = true, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// One of LTS_Integration's seven shipment attribute lookup tables (everything but Arrival
+    /// Country, which has no lookup table of its own - see IntegrationShipmentQueryService).
+    /// </summary>
+    Task<IReadOnlyList<AttributeDto>> GetIntegrationAttributesAsync(
+        AttributeKind kind, CancellationToken cancellationToken = default);
 }

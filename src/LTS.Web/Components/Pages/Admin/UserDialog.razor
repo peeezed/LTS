@@ -25,15 +25,15 @@
                 </MudSelect>
             </MudItem>
 
-            @if (RequiresPartner)
+            @if (RequiresCompany)
             {
                 <MudItem xs="12" md="6">
-                    <MudSelect T="int?" @bind-Value="_partnerId" Label="Company" Required="true"
+                    <MudSelect T="string?" @bind-Value="_supplierCompanyCode" Label="Company" Required="true"
                                Variant="Variant.Outlined" Margin="Margin.Dense"
                                HelperText="This is what limits the account to its own shipments">
-                        @foreach (var partner in RelevantPartners)
+                        @foreach (var company in RelevantCompanies)
                         {
-                            <MudSelectItem T="int?" Value="@partner.Id">@partner.Name</MudSelectItem>
+                            <MudSelectItem T="string?" Value="@company.Code">@company.Display</MudSelectItem>
                         }
                     </MudSelect>
                 </MudItem>
@@ -182,30 +182,31 @@
 
     [Parameter] public UserInput? Existing { get; set; }
     [Parameter] public IReadOnlyList<CountryDto> Countries { get; set; } = [];
-    [Parameter] public IReadOnlyList<PartnerDto> Partners { get; set; } = [];
+    [Parameter] public IReadOnlyList<AttributeDto> LogisticsCompanies { get; set; } = [];
+    [Parameter] public IReadOnlyList<AttributeDto> Brokers { get; set; } = [];
 
     private string _fullName = string.Empty;
     private string _email = string.Empty;
     private UserType _userType = UserType.LogisticsDepartment;
-    private int? _partnerId;
+    private string? _supplierCompanyCode;
     private bool _isActive = true;
 
     private readonly List<int> _countryIds = [];
     private readonly Dictionary<string, PagePermission> _grants = [];
 
-    private bool RequiresPartner => _userType is UserType.Broker or UserType.LogisticsCompany;
+    private bool RequiresCompany => _userType is UserType.Broker or UserType.LogisticsCompany;
 
-    private IEnumerable<PartnerDto> RelevantPartners => _userType switch
+    private IReadOnlyList<AttributeDto> RelevantCompanies => _userType switch
     {
-        UserType.Broker => Partners.Where(p => p.Type == PartnerType.Broker),
-        UserType.LogisticsCompany => Partners.Where(p => p.Type == PartnerType.LogisticsCompany),
+        UserType.Broker => Brokers,
+        UserType.LogisticsCompany => LogisticsCompanies,
         _ => []
     };
 
     private bool IsValid =>
         _fullName.Trim().Length > 0 &&
         _email.Trim().Length > 0 &&
-        (!RequiresPartner || _partnerId is not null);
+        (!RequiresCompany || _supplierCompanyCode is not null);
 
     protected override void OnInitialized()
     {
@@ -218,7 +219,7 @@
         _fullName = Existing.FullName;
         _email = Existing.Email;
         _userType = Existing.UserType;
-        _partnerId = Existing.PartnerId;
+        _supplierCompanyCode = Existing.SupplierCompanyCode;
         _isActive = Existing.IsActive;
         _countryIds.AddRange(Existing.CountryIds);
 
@@ -232,10 +233,10 @@
     {
         _userType = type;
 
-        // A partner from the previous type would be the wrong kind of company.
-        if (!RequiresPartner)
+        // A company from the previous type would be the wrong kind of company.
+        if (!RequiresCompany)
         {
-            _partnerId = null;
+            _supplierCompanyCode = null;
         }
 
         ApplyTemplate();
@@ -340,7 +341,7 @@
             Email = _email.Trim(),
             FullName = _fullName.Trim(),
             UserType = _userType,
-            PartnerId = _partnerId,
+            SupplierCompanyCode = _supplierCompanyCode,
             IsActive = _isActive,
             CountryIds = _countryIds,
             Permissions = permissions

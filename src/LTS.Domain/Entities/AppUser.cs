@@ -14,11 +14,19 @@ public class AppUser : IdentityUser<Guid>
     public required UserType UserType { get; set; }
 
     /// <summary>
-    /// The company an external user belongs to. Required for broker and logistics-company
-    /// accounts: it is what limits them to their own shipments. Null for internal staff.
+    /// The old database's Partner this account was linked to. Superseded by
+    /// <see cref="SupplierCompanyCode"/> for shipment scoping - kept only because existing
+    /// accounts still carry a value here; new and edited accounts no longer set it.
     /// </summary>
     public int? PartnerId { get; set; }
     public Partner? Partner { get; set; }
+
+    /// <summary>
+    /// The Code of a row in LTS_LogisticsCompanies (LogisticsCompany accounts) or LTS_Brokers
+    /// (Broker accounts) - what actually limits an external account to its own shipments now.
+    /// Required for broker and logistics-company accounts; null for internal staff.
+    /// </summary>
+    public string? SupplierCompanyCode { get; set; }
 
     public bool IsActive { get; set; } = true;
 

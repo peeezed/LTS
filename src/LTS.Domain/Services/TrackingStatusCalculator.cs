@@ -15,12 +15,16 @@ public static class TrackingStatusCalculator
     {
         ArgumentNullException.ThrowIfNull(shipment);
 
-        return Furthest(
-            MilestoneCatalog.ShipmentMilestones,
-            shipment.GetMilestoneDate,
-            TrackingStatus.Created,
-            null);
+        return ForShipment(shipment.GetMilestoneDate);
     }
+
+    /// <summary>
+    /// The furthest status reached by any shipment-scope milestone with a date, from a raw date
+    /// lookup rather than a domain <see cref="Shipment"/> - for data sources that carry the same
+    /// milestone dates but not the full domain model, such as LTS_Integration.
+    /// </summary>
+    public static (TrackingStatus Status, DateOnly? Date) ForShipment(Func<MilestoneType, DateOnly?> dateOf) =>
+        Furthest(MilestoneCatalog.ShipmentMilestones, dateOf, TrackingStatus.Created, null);
 
     /// <summary>
     /// The furthest status a transfer has reached. Before it leaves the crossdock a transfer

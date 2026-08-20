@@ -19,6 +19,9 @@ public sealed record LoadingPointInput(int? Id, string Code, string Name, string
 
 public sealed record StoreInput(int? Id, int CountryId, string Code, string Name, bool IsActive);
 
+/// <summary>One row of one of LTS_Integration's Code+Description shipment attribute tables.</summary>
+public sealed record AttributeInput(int? Id, string Code, string Description);
+
 /// <summary>
 /// Maintains the reference data a country needs before shipments can be imported: its customs
 /// offices, export and transport types, loading points, partners and stores. Onboarding a
@@ -37,4 +40,7 @@ public interface IMasterDataService
     Task<int> SaveLoadingPointAsync(LoadingPointInput input, CancellationToken cancellationToken = default);
 
     Task<int> SaveStoreAsync(StoreInput input, CancellationToken cancellationToken = default);
+
+    Task<int> SaveIntegrationAttributeAsync(
+        AttributeKind kind, AttributeInput input, CancellationToken cancellationToken = default);
 }

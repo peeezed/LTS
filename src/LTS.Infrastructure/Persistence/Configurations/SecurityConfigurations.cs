@@ -13,6 +13,10 @@ public class AppUserConfiguration : IEntityTypeConfiguration<AppUser>
         builder.Property(u => u.CreatedBy).HasMaxLength(256);
         builder.Ignore(u => u.IsExternal);
 
+        // LTS_Integration-only column (see LtsIntegrationDbContext) - this database has no
+        // matching one, so EF must not try to select it here.
+        builder.Ignore(u => u.SupplierCompanyCode);
+
         builder.HasOne(u => u.Partner).WithMany()
             .HasForeignKey(u => u.PartnerId).OnDelete(DeleteBehavior.Restrict);
 

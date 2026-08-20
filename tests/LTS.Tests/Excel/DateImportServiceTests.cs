@@ -25,7 +25,7 @@ public class DateImportServiceTests
             [UserPermissions.Key(PageKeys.DateUpload, Turkey)] = new(true, canEdit)
         };
 
-        return new UserPermissions(Guid.NewGuid(), userType, partnerId: 7, [Turkey], pages);
+        return new UserPermissions(Guid.NewGuid(), userType, partnerId: 7, supplierCompanyCode: null, [Turkey], pages);
     }
 
     private static MemoryStream Workbook(Action<XLWorkbook> build)

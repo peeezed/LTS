@@ -3,6 +3,7 @@ using LTS.Application.Security;
 using LTS.Application.Tracking;
 using LTS.Domain.Enums;
 using LTS.Domain.Milestones;
+using LTS.Domain.Services;
 using LTS.Infrastructure.Persistence;
 using LTS.Infrastructure.Reference;
 using Microsoft.EntityFrameworkCore;
@@ -11,16 +12,18 @@ namespace LTS.Infrastructure.Tracking;
 
 /// <summary>
 /// Writes shipment-level milestone dates into LTS_Integration's LTS_ShipmentDates, upserting by
-/// ReferenceNo. Transfer-level dates are not handled here yet - see IntegrationShipmentQueryService
-/// for the read side these dates feed.
+/// ReferenceNo, and keeps LTS_Shipments.CurrentStatus/Performance in step with them. Transfer-level
+/// dates are not handled here yet - see IntegrationShipmentQueryService for the read side these
+/// dates feed.
 ///
-/// Deliberately smaller than the old MilestoneService: no KPI recalculation (LTS_Integration has
-/// no domain Shipment/KPI target model to recalculate against - KPI is out of scope here) and no
-/// audit trail yet. Chronology/future-date validation is kept, since it is cheap and independent
-/// of KPI.
+/// Deliberately smaller than the old MilestoneService: CurrentStatus is derived the same way
+/// (the furthest milestone reached), but Performance cannot be scored against a KPI target -
+/// LTS_Integration has no domain Shipment/KPI target model, and KPI is out of scope here - so it
+/// only ever moves between NotStarted and NoTarget. No audit trail yet either. Chronology/
+/// future-date validation is kept, since it is cheap and independent of KPI.
 /// </summary>
 public sealed class IntegrationMilestoneService(
-    IDbContextFactory<LtsIntegrationDbContext> dbFactory, LtsDbContext partnersDb, IClock clock) : IIntegrationMilestoneService
+    IDbContextFactory<LtsIntegrationDbContext> dbFactory, IClock clock) : IIntegrationMilestoneService
 {
     private const int FutureToleranceDays = 1;
 
@@ -80,7 +83,7 @@ public sealed class IntegrationMilestoneService(
 
                 var inScope = countryId is not null
                     && permissions.HasCountry(countryId.Value)
-                    && await IsPartnerInScopeAsync(shipment, permissions, cancellationToken);
+                    && await IsPartnerInScopeAsync(db, shipment, permissions, cancellationToken);
 
                 if (!inScope)
                 {
@@ -125,9 +128,16 @@ public sealed class IntegrationMilestoneService(
                 applied++;
             }
 
-            if (isNew && changedThisShipment)
+            if (changedThisShipment)
             {
-                db.ShipmentDates.Add(date);
+                if (isNew)
+                {
+                    db.ShipmentDates.Add(date);
+                }
+
+                var (status, _) = TrackingStatusCalculator.ForShipment(t => GetDate(date, t));
+                shipment.CurrentStatus = status.ToDisplay();
+                shipment.Performance = DerivePerformance(date).ToDisplay();
             }
         }
 
@@ -178,27 +188,29 @@ public sealed class IntegrationMilestoneService(
     }
 
     /// <summary>
-    /// Whether a Broker/LogisticsCompany account may touch this shipment - matched by the
-    /// partner's name against LTS_Shipments.BrokerCompany/LogisticsCompany (free text there, so
-    /// this is a name match rather than a real foreign key). Always true for accounts that are
-    /// not partner-scoped.
+    /// Whether a Broker/LogisticsCompany account may touch this shipment - matched by its
+    /// SupplierCompanyCode's Description (via LTS_LogisticsCompanies/LTS_Brokers) against
+    /// LTS_Shipments.BrokerCompany/LogisticsCompany, the same way the read side matches it. Always
+    /// true for accounts that are not partner-scoped.
     /// </summary>
-    private async Task<bool> IsPartnerInScopeAsync(
-        LtsIntegrationShipment shipment, UserPermissions permissions, CancellationToken cancellationToken)
+    private static async Task<bool> IsPartnerInScopeAsync(
+        LtsIntegrationDbContext db, LtsIntegrationShipment shipment, UserPermissions permissions, CancellationToken cancellationToken)
     {
         if (!permissions.IsPartnerScoped)
         {
             return true;
         }
 
-        if (permissions.PartnerId is not { } partnerId)
+        if (permissions.SupplierCompanyCode is not { } code)
         {
             return false;
         }
 
-        var name = await partnersDb.Partners.AsNoTracking()
-            .Where(p => p.Id == partnerId)
-            .Select(p => p.Name)
+        var table = permissions.UserType == UserType.Broker ? db.BrokerAttributes : db.LogisticsCompanyAttributes;
+
+        var name = await table.AsNoTracking()
+            .Where(a => a.Code == code)
+            .Select(a => a.Description)
             .FirstOrDefaultAsync(cancellationToken);
 
         if (name is null)
@@ -222,6 +234,16 @@ public sealed class IntegrationMilestoneService(
 
         return rawId is { } id ? IntegrationCountryId.ToAppId(id) : null;
     }
+
+    /// <summary>
+    /// Without a KPI target to score against, Performance can only say whether the shipment has
+    /// started moving, not whether it is on time: NotStarted while every shipment milestone date
+    /// is empty, NoTarget as soon as any of them has a date.
+    /// </summary>
+    private static PerformanceStatus DerivePerformance(LtsIntegrationShipmentDate date) =>
+        MilestoneCatalog.ShipmentMilestones.Any(m => GetDate(date, m.Type) is not null)
+            ? PerformanceStatus.NoTarget
+            : PerformanceStatus.NotStarted;
 
     private static DateOnly? GetDate(LtsIntegrationShipmentDate d, MilestoneType type) => type switch
     {

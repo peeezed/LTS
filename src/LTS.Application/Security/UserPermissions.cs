@@ -24,25 +24,33 @@ public sealed class UserPermissions
         Guid userId,
         UserType userType,
         int? partnerId,
+        string? supplierCompanyCode,
         IReadOnlyCollection<int> countryIds,
         IReadOnlyDictionary<string, PagePermission> pages)
     {
         UserId = userId;
         UserType = userType;
         PartnerId = partnerId;
+        SupplierCompanyCode = supplierCompanyCode;
         CountryIds = countryIds;
         _pages = new Dictionary<string, PagePermission>(pages, StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>Permissions for an unauthenticated visitor: nothing at all.</summary>
     public static UserPermissions None { get; } =
-        new(Guid.Empty, UserType.Broker, null, [], new Dictionary<string, PagePermission>());
+        new(Guid.Empty, UserType.Broker, null, null, [], new Dictionary<string, PagePermission>());
 
     public Guid UserId { get; }
 
     public UserType UserType { get; }
 
     public int? PartnerId { get; }
+
+    /// <summary>
+    /// The Code of this account's row in LTS_LogisticsCompanies or LTS_Brokers (matching
+    /// UserType) - what actually limits a Broker/LogisticsCompany account to its own shipments.
+    /// </summary>
+    public string? SupplierCompanyCode { get; }
 
     /// <summary>Countries the user may enter, in the order they are offered after login.</summary>
     public IReadOnlyCollection<int> CountryIds { get; }
