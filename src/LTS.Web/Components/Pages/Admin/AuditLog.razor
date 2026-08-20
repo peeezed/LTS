@@ -94,6 +94,10 @@ else
     private MilestoneSource? _source;
     private MilestoneType? _milestoneType;
 
+    // The audit trail still lives entirely on the old database, which no longer exists - out of
+    // scope for the LTS_Integration migration until it is rebuilt against it. Caught here rather
+    // than left to propagate, since an unhandled exception from ServerData takes the whole circuit
+    // down, not just this grid.
     private async Task<GridData<AuditRow>> LoadAsync(GridState<AuditRow> state)
     {
         var filter = new AuditFilter
@@ -103,10 +107,17 @@ else
             MilestoneType = _milestoneType
         };
 
-        var result = await Audit.GetAuditAsync(
-            CountryId, Permissions, filter, new GridRequest(state.Page, state.PageSize));
+        try
+        {
+            var result = await Audit.GetAuditAsync(
+                CountryId, Permissions, filter, new GridRequest(state.Page, state.PageSize));
 
-        return new GridData<AuditRow> { Items = result.Items, TotalItems = result.TotalCount };
+            return new GridData<AuditRow> { Items = result.Items, TotalItems = result.TotalCount };
+        }
+        catch (Exception)
+        {
+            return new GridData<AuditRow> { Items = [], TotalItems = 0 };
+        }
     }
 
     private Task OnSearchChanged(string? value)

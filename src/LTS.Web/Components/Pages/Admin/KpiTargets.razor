@@ -17,6 +17,13 @@
 {
     <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
 }
+else if (_unavailable)
+{
+    <MudAlert Severity="Severity.Warning">
+        KPI targets could not be loaded. This page still reads from the old LTS database, which is no
+        longer available.
+    </MudAlert>
+}
 else
 {
     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-1">
@@ -160,12 +167,23 @@ else
     private IReadOnlyList<LookupDto> _exportTypes = [];
     private IReadOnlyList<CountryDto> _countries = [];
     private KpiImportPreview? _preview;
+    private bool _unavailable;
 
+    // KPI targets still live entirely on the old database, which no longer exists - this whole
+    // page is out of scope for the LTS_Integration migration until it is rebuilt against it.
     protected override async Task OnCountryReadyAsync()
     {
-        _exportTypes = await Reference.GetLookupsAsync(LookupKind.ExportType);
-        _countries = await Reference.GetCountriesAsync();
-        await LoadAsync();
+        try
+        {
+            _exportTypes = await Reference.GetLookupsAsync(LookupKind.ExportType);
+            _countries = await Reference.GetCountriesAsync();
+            await LoadAsync();
+            _unavailable = false;
+        }
+        catch (Exception)
+        {
+            _unavailable = true;
+        }
     }
 
     private async Task LoadAsync() => _targets = await Kpi.GetTargetsAsync(CountryId);

@@ -36,23 +36,23 @@
         @if (!Permissions.IsPartnerScoped)
         {
             <MudItem xs="12" sm="6" md="2">
-                <MudSelect T="int?" Value="_logisticsCompanyId" Label="Logistics company"
+                <MudSelect T="string?" Value="_logisticsCompanyCode" Label="Logistics company"
                            Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true"
                            ValueChanged="OnLogisticsCompanyChanged">
-                    @foreach (var partner in _logisticsCompanies)
+                    @foreach (var company in _logisticsCompanies)
                     {
-                        <MudSelectItem T="int?" Value="@partner.Id">@partner.Name</MudSelectItem>
+                        <MudSelectItem T="string?" Value="@company.Code">@company.Display</MudSelectItem>
                     }
                 </MudSelect>
             </MudItem>
 
             <MudItem xs="12" sm="6" md="2">
-                <MudSelect T="int?" Value="_brokerId" Label="Broker"
+                <MudSelect T="string?" Value="_brokerCode" Label="Broker"
                            Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true"
                            ValueChanged="OnBrokerChanged">
-                    @foreach (var partner in _brokers)
+                    @foreach (var broker in _brokers)
                     {
-                        <MudSelectItem T="int?" Value="@partner.Id">@partner.Name</MudSelectItem>
+                        <MudSelectItem T="string?" Value="@broker.Code">@broker.Display</MudSelectItem>
                     }
                 </MudSelect>
             </MudItem>
@@ -78,11 +78,11 @@
     private string? _search;
     private IEnumerable<TrackingStatus> _statuses = [];
     private IEnumerable<PerformanceStatus> _performances = [];
-    private int? _logisticsCompanyId;
-    private int? _brokerId;
+    private string? _logisticsCompanyCode;
+    private string? _brokerCode;
 
-    private IReadOnlyList<PartnerDto> _logisticsCompanies = [];
-    private IReadOnlyList<PartnerDto> _brokers = [];
+    private IReadOnlyList<AttributeDto> _logisticsCompanies = [];
+    private IReadOnlyList<AttributeDto> _brokers = [];
 
     private static readonly TrackingStatus[] Statuses = Enum.GetValues<TrackingStatus>();
     private static readonly PerformanceStatus[] Performances = Enum.GetValues<PerformanceStatus>();
@@ -94,8 +94,8 @@
             return;
         }
 
-        _logisticsCompanies = await Reference.GetPartnersAsync(PartnerType.LogisticsCompany);
-        _brokers = await Reference.GetPartnersAsync(PartnerType.Broker);
+        _logisticsCompanies = await Reference.GetIntegrationAttributesAsync(AttributeKind.LogisticsCompany);
+        _brokers = await Reference.GetIntegrationAttributesAsync(AttributeKind.Broker);
     }
 
     private Task OnStatusesChanged(IEnumerable<TrackingStatus> values)
@@ -110,15 +110,15 @@
         return ApplyAsync();
     }
 
-    private Task OnLogisticsCompanyChanged(int? value)
+    private Task OnLogisticsCompanyChanged(string? value)
     {
-        _logisticsCompanyId = value;
+        _logisticsCompanyCode = value;
         return ApplyAsync();
     }
 
-    private Task OnBrokerChanged(int? value)
+    private Task OnBrokerChanged(string? value)
     {
-        _brokerId = value;
+        _brokerCode = value;
         return ApplyAsync();
     }
 
@@ -127,8 +127,8 @@
         Search = _search,
         Statuses = _statuses.ToList(),
         Performances = _performances.ToList(),
-        LogisticsCompanyId = _logisticsCompanyId,
-        BrokerId = _brokerId,
+        LogisticsCompanyCode = _logisticsCompanyCode,
+        BrokerCode = _brokerCode,
         OnlyInTransit = OnlyInTransit
     });
 
@@ -137,8 +137,8 @@
         _search = null;
         _statuses = [];
         _performances = [];
-        _logisticsCompanyId = null;
-        _brokerId = null;
+        _logisticsCompanyCode = null;
+        _brokerCode = null;
 
         return ApplyAsync();
     }

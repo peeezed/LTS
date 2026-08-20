@@ -60,6 +60,15 @@ else
         </MudTabPanel>
 
         <MudTabPanel Text="Stores" Icon="@Icons.Material.Filled.Store">
+            @if (_storesUnavailable)
+            {
+                <MudAlert Severity="Severity.Warning">
+                    Stores could not be loaded. This tab still reads from the old LTS database, which is no
+                    longer available.
+                </MudAlert>
+            }
+            else
+            {
             <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
                 <MudText Typo="Typo.body2" Class="mud-text-secondary">
                     Destinations for transfers in @Country.Current!.Name. A transfer whose store code is
@@ -115,6 +124,7 @@ else
                     </MudGrid>
                 </MudPaper>
             }
+            }
         </MudTabPanel>
     </MudTabs>
 }
@@ -130,6 +140,7 @@ else
     private IReadOnlyList<AttributeDto> _logisticsCompanies = [];
     private IReadOnlyList<AttributeDto> _brokers = [];
     private IReadOnlyList<StoreDto> _stores = [];
+    private bool _storesUnavailable;
 
     private StoreDto? _editingStore;
     private string _storeCode = string.Empty, _storeName = string.Empty;
@@ -145,7 +156,19 @@ else
         _loadingPoints = await Reference.GetIntegrationAttributesAsync(AttributeKind.LoadingPoint);
         _logisticsCompanies = await Reference.GetIntegrationAttributesAsync(AttributeKind.LogisticsCompany);
         _brokers = await Reference.GetIntegrationAttributesAsync(AttributeKind.Broker);
-        _stores = await Reference.GetStoresAsync(CountryId, activeOnly: false);
+
+        // Stores still lives on the old database (no LTS_Integration table exists for it yet), so
+        // its failure must not take the other six, already-migrated tabs down with it.
+        try
+        {
+            _stores = await Reference.GetStoresAsync(CountryId, activeOnly: false);
+            _storesUnavailable = false;
+        }
+        catch (Exception)
+        {
+            _stores = [];
+            _storesUnavailable = true;
+        }
     }
 
     private void EditStore(StoreDto? store)

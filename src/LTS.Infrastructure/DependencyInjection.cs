@@ -89,8 +89,6 @@ public static class DependencyInjection
         services.AddScoped<IPermissionService, PermissionService>();
         services.AddScoped<IReferenceDataService, ReferenceDataService>();
         // Sourced from LTS_Integration, not the old database - see IntegrationShipmentQueryService.
-        // Every country reachable through CountryContext now comes from LTS_Integration, so the
-        // old LtsDbContext-backed ShipmentQueryService has nothing left to serve.
         services.AddScoped<IShipmentQueryService, IntegrationShipmentQueryService>();
         // The old database's own milestone writer - still used by the integration poller
         // (IntegrationRunner) and the Excel upload (DateImportService), both of which still act

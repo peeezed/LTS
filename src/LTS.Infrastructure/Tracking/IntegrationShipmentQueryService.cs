@@ -52,7 +52,7 @@ public sealed class IntegrationShipmentQueryService(
 
         var query = db.Shipments.AsNoTracking().Where(s => s.CustomerCode == info.CustomerCode);
         query = ApplyPartnerFilter(query, permissions, restricted, partnerName);
-        query = ApplyFilter(query, filter);
+        query = await ApplyFilterAsync(db, query, filter, cancellationToken);
 
         var total = await query.CountAsync(cancellationToken);
 
@@ -142,6 +142,17 @@ public sealed class IntegrationShipmentQueryService(
             query = permissions.UserType == UserType.Broker
                 ? query.Where(x => x.Shipment.BrokerCompany == partnerName)
                 : query.Where(x => x.Shipment.LogisticsCompany == partnerName);
+        }
+
+        if (await ResolveCompanyCodeAsync(db.LogisticsCompanyAttributes, filter.LogisticsCompanyCode, cancellationToken)
+            is { } logisticsCompanyName)
+        {
+            query = query.Where(x => x.Shipment.LogisticsCompany == logisticsCompanyName);
+        }
+
+        if (await ResolveCompanyCodeAsync(db.BrokerAttributes, filter.BrokerCode, cancellationToken) is { } brokerName)
+        {
+            query = query.Where(x => x.Shipment.BrokerCompany == brokerName);
         }
 
         if (!string.IsNullOrWhiteSpace(filter.Search))
@@ -554,8 +565,9 @@ public sealed class IntegrationShipmentQueryService(
             : query.Where(s => s.LogisticsCompany == partnerName);
     }
 
-    private static IQueryable<LtsIntegrationShipment> ApplyFilter(
-        IQueryable<LtsIntegrationShipment> query, ShipmentFilter filter)
+    private static async Task<IQueryable<LtsIntegrationShipment>> ApplyFilterAsync(
+        LtsIntegrationDbContext db, IQueryable<LtsIntegrationShipment> query, ShipmentFilter filter,
+        CancellationToken cancellationToken)
     {
         if (!string.IsNullOrWhiteSpace(filter.Search))
         {
@@ -575,6 +587,17 @@ public sealed class IntegrationShipmentQueryService(
             query = query.Where(s => labels.Contains(s.Performance));
         }
 
+        if (await ResolveCompanyCodeAsync(db.LogisticsCompanyAttributes, filter.LogisticsCompanyCode, cancellationToken)
+            is { } logisticsCompanyName)
+        {
+            query = query.Where(s => s.LogisticsCompany == logisticsCompanyName);
+        }
+
+        if (await ResolveCompanyCodeAsync(db.BrokerAttributes, filter.BrokerCode, cancellationToken) is { } brokerName)
+        {
+            query = query.Where(s => s.BrokerCompany == brokerName);
+        }
+
         if (filter.InvoiceDateFrom is { } from)
         {
             query = query.Where(s => s.InvoiceDate >= from);
@@ -586,10 +609,28 @@ public sealed class IntegrationShipmentQueryService(
         }
 
         // Attribute filters (ArrivalCustomsId, ExportTypeId, ...) and OnlyInTransit are not
-        // applied here: LTS_Integration's seven attributes are free text, not the old lookup
-        // ids the filter dropdowns are built from, and their dropdowns have nothing to show for
-        // an LTS_Integration-backed country anyway (see ShipmentFilterBar).
+        // applied here: LTS_Integration's remaining five attributes are free text with no filter
+        // UI wired up yet (see ShipmentFilterBar), and in-transit has no equivalent flag here.
         return query;
+    }
+
+    /// <summary>
+    /// A filter dropdown's selected Code, resolved to the Description LTS_Shipments actually
+    /// stores - the same match GetIntegrationAttributesAsync/ResolvePartnerFilterAsync use. Null
+    /// when no code was selected or the code no longer resolves to anything.
+    /// </summary>
+    private static async Task<string?> ResolveCompanyCodeAsync(
+        IQueryable<LtsIntegrationAttribute> table, string? code, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            return null;
+        }
+
+        return await table.AsNoTracking()
+            .Where(a => a.Code == code)
+            .Select(a => a.Description)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     private static IQueryable<LtsIntegrationShipment> Sort(IQueryable<LtsIntegrationShipment> query, GridRequest request)

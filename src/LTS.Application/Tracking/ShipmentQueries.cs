@@ -26,8 +26,12 @@ public sealed record ShipmentFilter
     public int? ExportTypeId { get; init; }
     public int? TransportTypeId { get; init; }
     public int? LoadingPointId { get; init; }
-    public int? LogisticsCompanyId { get; init; }
-    public int? BrokerId { get; init; }
+
+    /// <summary>LTS_LogisticsCompanies/LTS_Brokers Code - see AttributeKind.LogisticsCompany.</summary>
+    public string? LogisticsCompanyCode { get; init; }
+
+    /// <summary>LTS_LogisticsCompanies/LTS_Brokers Code - see AttributeKind.Broker.</summary>
+    public string? BrokerCode { get; init; }
 
     public DateOnly? InvoiceDateFrom { get; init; }
     public DateOnly? InvoiceDateTo { get; init; }

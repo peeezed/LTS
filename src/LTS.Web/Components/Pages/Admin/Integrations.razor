@@ -14,6 +14,13 @@
 {
     <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
 }
+else if (_unavailable)
+{
+    <MudAlert Severity="Severity.Warning">
+        Integrations could not be loaded. This page still reads from the old LTS database, which is no
+        longer available.
+    </MudAlert>
+}
 else
 {
     <MudText Typo="Typo.h5" Class="mb-1">Integrations</MudText>
@@ -236,20 +243,32 @@ else
     private IReadOnlyList<UnmappedCode> _unmapped = [];
     private int? _selectedSourceId;
     private bool _running;
+    private bool _unavailable;
 
     protected override Task OnCountryReadyAsync() => LoadAsync();
 
+    // Integrations still run entirely against the old database, which no longer exists - out of
+    // scope for the LTS_Integration migration until the poller/runner are rebuilt against it.
     private async Task LoadAsync()
     {
-        _sources = await Admin.GetSourcesAsync(CountryId);
-        _runs = await Admin.GetRunsAsync(CountryId);
-        _unmapped = await Admin.GetUnmappedCodesAsync(CountryId);
-
-        _selectedSourceId ??= _sources.FirstOrDefault()?.Id;
-
-        if (_selectedSourceId is { } sourceId)
+        try
         {
-            _mappings = await Admin.GetMappingsAsync(sourceId);
+            _sources = await Admin.GetSourcesAsync(CountryId);
+            _runs = await Admin.GetRunsAsync(CountryId);
+            _unmapped = await Admin.GetUnmappedCodesAsync(CountryId);
+
+            _selectedSourceId ??= _sources.FirstOrDefault()?.Id;
+
+            if (_selectedSourceId is { } sourceId)
+            {
+                _mappings = await Admin.GetMappingsAsync(sourceId);
+            }
+
+            _unavailable = false;
+        }
+        catch (Exception)
+        {
+            _unavailable = true;
         }
     }
 

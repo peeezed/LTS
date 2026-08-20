@@ -231,6 +231,10 @@ else
                 $"Imported {_committed.Applied} date{(_committed.Applied == 1 ? "" : "s")}.",
                 _committed.Applied > 0 ? Severity.Success : Severity.Warning);
         }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Import failed: {exception.Message}", Severity.Error);
+        }
         finally
         {
             _busy = false;
