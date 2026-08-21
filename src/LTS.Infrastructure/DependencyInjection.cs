@@ -127,6 +127,12 @@ public static class DependencyInjection
         services.AddScoped<ShipmentFeedRunner>();
         services.AddHostedService<ShipmentFeedPoller>();
 
+        // Catches up LTS_Shipments.CurrentStatus for shipments whose transfer dates changed
+        // outside the app (e.g. a future supplier integration writing straight into
+        // LTS_ShipmentTransferDates) - see ShipmentStatusReconciler.
+        services.AddScoped<ShipmentStatusReconciler>();
+        services.AddHostedService<ShipmentStatusReconciliationPoller>();
+
         return services;
     }
 }

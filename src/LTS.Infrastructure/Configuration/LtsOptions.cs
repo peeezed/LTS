@@ -22,6 +22,8 @@ public sealed class LtsOptions
     public IntegrationOptions Integration { get; set; } = new();
 
     public ShipmentFeedOptions ShipmentFeed { get; set; } = new();
+
+    public ShipmentStatusReconciliationOptions ShipmentStatusReconciliation { get; set; } = new();
 }
 
 /// <summary>The first administrator, created on an empty database so someone can log in.</summary>
@@ -68,4 +70,20 @@ public sealed class ShipmentFeedOptions
     public string? SecretName { get; set; }
 
     public int PollSeconds { get; set; } = 300;
+}
+
+/// <summary>
+/// How the shipment status reconciliation poller behaves - catches up LTS_Shipments.CurrentStatus
+/// for shipments whose transfer dates changed outside the app (see ShipmentStatusReconciler).
+/// </summary>
+public sealed class ShipmentStatusReconciliationOptions
+{
+    /// <summary>
+    /// On by default: unlike the other pollers, this one has no external dependency (no endpoint,
+    /// no secret) to misconfigure - it only reads/writes LTS_Integration, which is already
+    /// required for the app to run at all.
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+
+    public int PollSeconds { get; set; } = 60;
 }

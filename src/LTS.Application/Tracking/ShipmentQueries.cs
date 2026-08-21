@@ -53,6 +53,9 @@ public sealed record GridRequest(
     public int Skip => Page * PageSize;
 }
 
+/// <summary>How many of a shipment's transfers are currently at a given status.</summary>
+public sealed record TransferStatusCount(TrackingStatus Status, int Count);
+
 /// <summary>A row of the Shipments grid: the seven attributes, the dates and the scores.</summary>
 public sealed record ShipmentRow
 {
@@ -81,6 +84,13 @@ public sealed record ShipmentRow
     public int TransferCount { get; init; }
     public int TotalBoxes { get; init; }
     public int TotalItems { get; init; }
+
+    /// <summary>
+    /// How this shipment's transfers are spread across statuses, in lifecycle order - the
+    /// shipment's own CurrentStatus stops advancing at AtCrossdock, so this is what shows
+    /// whether/how far its transfers have moved on since then. Empty when it has no transfers.
+    /// </summary>
+    public IReadOnlyList<TransferStatusCount> TransferStatusBreakdown { get; init; } = [];
 
     public TrackingStatus CurrentStatus { get; init; }
     public DateOnly? CurrentStatusDate { get; init; }

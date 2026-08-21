@@ -2,6 +2,7 @@ using LTS.Application.Abstractions;
 using LTS.Application.Security;
 using LTS.Application.Tracking;
 using LTS.Domain.Enums;
+using LTS.Domain.Services;
 using LTS.Infrastructure.Persistence;
 using LTS.Infrastructure.Reference;
 using Microsoft.EntityFrameworkCore;
@@ -62,15 +63,19 @@ public sealed class IntegrationShipmentQueryService(
             .ToListAsync(cancellationToken);
 
         var references = page.Select(s => s.ReferenceNo).ToList();
-        var dates = await db.ShipmentDates.AsNoTracking()
-            .Where(d => references.Contains(d.ReferenceNo))
-            .ToDictionaryAsync(d => d.ReferenceNo, cancellationToken);
+        var dates = await ToDictionaryTolerantAsync(
+            db.ShipmentDates.AsNoTracking().Where(d => references.Contains(d.ReferenceNo)),
+            d => d.ReferenceNo, d => d, cancellationToken);
 
         var attributes = await ResolveAttributesAsync(db, page, cancellationToken);
+        var breakdowns = await TransferStatusBreakdownsAsync(db, page, dates, cancellationToken);
 
         var rows = page.Select(s =>
         {
             var d = dates.GetValueOrDefault(s.ReferenceNo);
+            var transferBreakdown = breakdowns.GetValueOrDefault(s.ReferenceNo, []);
+            var shipmentStatus = ShipmentStatusAggregator.AggregateShipmentStatus(
+                ShipmentStatusAggregator.MilestoneStatus(d), transferBreakdown);
 
             return new ShipmentRow
             {
@@ -96,13 +101,77 @@ public sealed class IntegrationShipmentQueryService(
                 TransferCount = s.TotalTransfers ?? 0,
                 TotalBoxes = s.TotalBoxes ?? 0,
                 TotalItems = s.TotalItems ?? 0,
-                CurrentStatus = ParseStatus(s.CurrentStatus),
+                TransferStatusBreakdown = transferBreakdown,
+                CurrentStatus = shipmentStatus,
                 CurrentStatusDate = null,
                 Performance = ParsePerformance(s.Performance)
             };
         }).ToList();
 
         return new PagedResult<ShipmentRow>(rows, total);
+    }
+
+    /// <summary>
+    /// How each of the given shipments' transfers is spread across statuses, keyed by
+    /// ReferenceNo - the Shipments grid's "shipment status stops at crossdock" complement, since
+    /// a shipment gives no other visibility into what's happened to it since. Shipments with no
+    /// transfers are simply absent from the result. Takes the shipments' own already-loaded
+    /// LTS_ShipmentDates so each transfer is seeded from the true milestone-only floor
+    /// (ShipmentStatusAggregator.MilestoneStatus) rather than LTS_Shipments.CurrentStatus, which
+    /// may already hold an aggregated value once a sibling transfer has advanced it.
+    /// </summary>
+    private async Task<Dictionary<string, IReadOnlyList<TransferStatusCount>>> TransferStatusBreakdownsAsync(
+        LtsIntegrationDbContext db, IReadOnlyList<LtsIntegrationShipment> shipments,
+        IReadOnlyDictionary<string, LtsIntegrationShipmentDate> shipmentDates, CancellationToken cancellationToken)
+    {
+        var references = shipments.Select(s => s.ReferenceNo).ToList();
+
+        var transfers = await db.ShipmentTransfers.AsNoTracking()
+            .Where(t => references.Contains(t.ReferenceNo))
+            .ToListAsync(cancellationToken);
+
+        if (transfers.Count == 0)
+        {
+            return [];
+        }
+
+        var transferNos = transfers.Select(t => t.TransferNo).ToList();
+        var dates = await ToDictionaryTolerantAsync(
+            db.ShipmentTransferDates.AsNoTracking().Where(d => transferNos.Contains(d.TransferNo)),
+            d => d.TransferNo, d => d, cancellationToken);
+        var boxes = await db.Boxes.AsNoTracking()
+            .Where(b => transferNos.Contains(b.TransferNo))
+            .ToListAsync(cancellationToken);
+
+        var shipmentStatuses = references
+            .Distinct()
+            .ToDictionary(r => r, r => ShipmentStatusAggregator.MilestoneStatus(shipmentDates.GetValueOrDefault(r)));
+
+        return transfers
+            .GroupBy(t => t.ReferenceNo)
+            .ToDictionary(
+                g => g.Key,
+                g =>
+                {
+                    var shipmentStatus = shipmentStatuses.GetValueOrDefault(g.Key, TrackingStatus.Created);
+
+                    return (IReadOnlyList<TransferStatusCount>)
+                    [
+                        .. g.Select(t =>
+                            {
+                                var d = dates.GetValueOrDefault(t.TransferNo);
+                                var transferBoxes = boxes.Where(b => b.TransferNo == t.TransferNo).ToList();
+
+                                return ShipmentStatusAggregator.TransferStatus(shipmentStatus, d?.CrossdockDepartureDate,
+                                    d?.PlannedStoreArrivalDate, d?.StoreArrivalDate,
+                                    BoxMilestone(transferBoxes, b => b.PreAcceptanceDate),
+                                    BoxMilestone(transferBoxes, b => b.AcceptanceDate));
+                            })
+                            .GroupBy(status => status)
+                            .OrderBy(statusGroup => statusGroup.Key)
+                            .Select(statusGroup => new TransferStatusCount(statusGroup.Key, statusGroup.Count()))
+                    ];
+                });
     }
 
     public async Task<PagedResult<TransferRow>> GetTransfersAsync(
@@ -164,6 +233,11 @@ public sealed class IntegrationShipmentQueryService(
                 x.Shipment.InvoiceNo.Contains(term));
         }
 
+        // Filters against the stored CurrentStatus text, not the shipment-inheriting status the
+        // row itself now displays (see TransferStatus below) - computing the inherited status
+        // would mean loading every candidate transfer's dates before paging/filtering, not just
+        // the current page's. A transfer without its own Crossdock Departure date yet may
+        // therefore not match a status filter that its displayed status would suggest it should.
         if (filter.Statuses is { Count: > 0 })
         {
             var labels = filter.Statuses.Select(v => v.ToDisplay()).ToList();
@@ -209,17 +283,28 @@ public sealed class IntegrationShipmentQueryService(
         var page = await query.Skip(request.Skip).Take(request.PageSize).ToListAsync(cancellationToken);
 
         var transferNos = page.Select(x => x.Transfer.TransferNo).ToList();
-        var dates = await db.ShipmentTransferDates.AsNoTracking()
-            .Where(d => transferNos.Contains(d.TransferNo))
-            .ToDictionaryAsync(d => d.TransferNo, cancellationToken);
+        var dates = await ToDictionaryTolerantAsync(
+            db.ShipmentTransferDates.AsNoTracking().Where(d => transferNos.Contains(d.TransferNo)),
+            d => d.TransferNo, d => d, cancellationToken);
         var boxes = await db.Boxes.AsNoTracking()
             .Where(b => transferNos.Contains(b.TransferNo))
             .ToListAsync(cancellationToken);
+
+        // The shipment's own dates, not its (possibly already transfer-aggregated)
+        // LTS_Shipments.CurrentStatus - see ShipmentStatusAggregator.MilestoneStatus.
+        var shipmentReferences = page.Select(x => x.Shipment.ReferenceNo).Distinct().ToList();
+        var shipmentDates = await ToDictionaryTolerantAsync(
+            db.ShipmentDates.AsNoTracking().Where(d => shipmentReferences.Contains(d.ReferenceNo)),
+            d => d.ReferenceNo, d => d, cancellationToken);
 
         var rows = page.Select(x =>
         {
             var d = dates.GetValueOrDefault(x.Transfer.TransferNo);
             var transferBoxes = boxes.Where(b => b.TransferNo == x.Transfer.TransferNo).ToList();
+            var storePreAcceptance = BoxMilestone(transferBoxes, b => b.PreAcceptanceDate);
+            var storeAcceptance = BoxMilestone(transferBoxes, b => b.AcceptanceDate);
+            var milestoneStatus = ShipmentStatusAggregator.MilestoneStatus(
+                shipmentDates.GetValueOrDefault(x.Shipment.ReferenceNo));
 
             return new TransferRow
             {
@@ -231,15 +316,17 @@ public sealed class IntegrationShipmentQueryService(
                 DateCreated = x.Transfer.DateCreated ?? x.Shipment.InvoiceDate,
                 StoreCode = x.Transfer.ReceivingStoreCode,
                 StoreName = null,
-                CurrentStatus = ParseStatus(x.Transfer.CurrentStatus),
+                CurrentStatus = ShipmentStatusAggregator.TransferStatus(milestoneStatus,
+                    d?.CrossdockDepartureDate, d?.PlannedStoreArrivalDate, d?.StoreArrivalDate,
+                    storePreAcceptance, storeAcceptance),
                 Performance = ParsePerformance(x.Transfer.Performance),
                 TotalBoxes = x.Transfer.TotalBoxes ?? 0,
                 TotalItems = x.Transfer.TotalItems ?? 0,
                 CrossdockDepartureDate = d?.CrossdockDepartureDate,
                 PlannedStoreArrivalDate = d?.PlannedStoreArrivalDate,
                 StoreArrivalDate = d?.StoreArrivalDate,
-                StorePreAcceptanceDate = BoxMilestone(transferBoxes, b => b.PreAcceptanceDate),
-                StoreAcceptanceDate = BoxMilestone(transferBoxes, b => b.AcceptanceDate)
+                StorePreAcceptanceDate = storePreAcceptance,
+                StoreAcceptanceDate = storeAcceptance
             };
         }).ToList();
 
@@ -295,14 +382,48 @@ public sealed class IntegrationShipmentQueryService(
             .ToListAsync(cancellationToken);
 
         var transferNos = transfers.Select(t => t.TransferNo).ToList();
-        var transferDates = await db.ShipmentTransferDates.AsNoTracking()
-            .Where(d => transferNos.Contains(d.TransferNo))
-            .ToDictionaryAsync(d => d.TransferNo, cancellationToken);
+        var transferDates = await ToDictionaryTolerantAsync(
+            db.ShipmentTransferDates.AsNoTracking().Where(d => transferNos.Contains(d.TransferNo)),
+            d => d.TransferNo, d => d, cancellationToken);
         var boxes = await db.Boxes.AsNoTracking()
             .Where(b => transferNos.Contains(b.TransferNo))
             .ToListAsync(cancellationToken);
 
         var attributes = await ResolveAttributesAsync(db, [shipment], cancellationToken);
+        var milestoneStatus = ShipmentStatusAggregator.MilestoneStatus(date);
+
+        var transferDetails = transfers.Select(t =>
+        {
+            var td = transferDates.GetValueOrDefault(t.TransferNo);
+            var transferBoxes = boxes.Where(b => b.TransferNo == t.TransferNo).ToList();
+            var storePreAcceptance = BoxMilestone(transferBoxes, b => b.PreAcceptanceDate);
+            var storeAcceptance = BoxMilestone(transferBoxes, b => b.AcceptanceDate);
+
+            return new TransferDetail
+            {
+                Id = SyntheticId(t.TransferNo),
+                TransferNo = t.TransferNo,
+                Receiver = t.ReceivingStoreCode ?? string.Empty,
+                TotalBoxes = t.TotalBoxes ?? 0,
+                TotalItems = t.TotalItems ?? 0,
+                CurrentStatus = ShipmentStatusAggregator.TransferStatus(milestoneStatus, td?.CrossdockDepartureDate,
+                    td?.PlannedStoreArrivalDate, td?.StoreArrivalDate, storePreAcceptance, storeAcceptance),
+                Performance = ParsePerformance(t.Performance),
+                Milestones = new Dictionary<MilestoneType, DateOnly?>
+                {
+                    [MilestoneType.CrossdockDeparture] = td?.CrossdockDepartureDate,
+                    [MilestoneType.PlannedStoreArrival] = td?.PlannedStoreArrivalDate,
+                    [MilestoneType.StoreArrival] = td?.StoreArrivalDate,
+                    [MilestoneType.StorePreAcceptance] = storePreAcceptance,
+                    [MilestoneType.StoreAcceptance] = storeAcceptance
+                }
+            };
+        }).ToList();
+
+        var shipmentStatus = ShipmentStatusAggregator.AggregateShipmentStatus(milestoneStatus,
+            [.. transferDetails
+                .GroupBy(t => t.CurrentStatus)
+                .Select(g => new TransferStatusCount(g.Key, g.Count()))]);
 
         return new ShipmentDetail
         {
@@ -318,7 +439,7 @@ public sealed class IntegrationShipmentQueryService(
             LoadingPoint = attributes.LoadingPoint.Resolve(shipment.LoadingPoint),
             LogisticsCompany = attributes.LogisticsCompany.Resolve(shipment.LogisticsCompany),
             Broker = attributes.Broker.Resolve(shipment.BrokerCompany),
-            CurrentStatus = ParseStatus(shipment.CurrentStatus),
+            CurrentStatus = shipmentStatus,
             Performance = ParsePerformance(shipment.Performance),
             TransferCount = shipment.TotalTransfers ?? 0,
             TotalBoxes = shipment.TotalBoxes ?? 0,
@@ -333,33 +454,7 @@ public sealed class IntegrationShipmentQueryService(
                 [MilestoneType.CustomsEnd] = date?.ArrivalCustomsEndDate,
                 [MilestoneType.CrossdockArrival] = date?.CrossdockArrivalDate
             },
-            Transfers =
-            [
-                .. transfers.Select(t =>
-                {
-                    var td = transferDates.GetValueOrDefault(t.TransferNo);
-                    var transferBoxes = boxes.Where(b => b.TransferNo == t.TransferNo).ToList();
-
-                    return new TransferDetail
-                    {
-                        Id = SyntheticId(t.TransferNo),
-                        TransferNo = t.TransferNo,
-                        Receiver = t.ReceivingStoreCode ?? string.Empty,
-                        TotalBoxes = t.TotalBoxes ?? 0,
-                        TotalItems = t.TotalItems ?? 0,
-                        CurrentStatus = ParseStatus(t.CurrentStatus),
-                        Performance = ParsePerformance(t.Performance),
-                        Milestones = new Dictionary<MilestoneType, DateOnly?>
-                        {
-                            [MilestoneType.CrossdockDeparture] = td?.CrossdockDepartureDate,
-                            [MilestoneType.PlannedStoreArrival] = td?.PlannedStoreArrivalDate,
-                            [MilestoneType.StoreArrival] = td?.StoreArrivalDate,
-                            [MilestoneType.StorePreAcceptance] = BoxMilestone(transferBoxes, b => b.PreAcceptanceDate),
-                            [MilestoneType.StoreAcceptance] = BoxMilestone(transferBoxes, b => b.AcceptanceDate)
-                        }
-                    };
-                })
-            ]
+            Transfers = transferDetails
         };
     }
 
@@ -387,12 +482,11 @@ public sealed class IntegrationShipmentQueryService(
             return InTransitSummary.Empty;
         }
 
-        // "In transit" is approximated from the shipment's own CurrentStatus, since
-        // LTS_Integration does not (yet) carry enough transfer-level detail here to check every
-        // store leg the way the old database's in-transit query does.
-        var accepted = TrackingStatus.Accepted.ToDisplay();
-        var shipmentsQuery = db.Shipments.AsNoTracking()
-            .Where(s => s.CustomerCode == info.CustomerCode && s.CurrentStatus != accepted);
+        // "In transit" means the shipment's displayed status (its own milestones, or its
+        // transfers' once they've moved further - see AggregateShipmentStatus) hasn't reached
+        // ArrivedAtStore yet, the shipment's terminal status once every transfer has reached its
+        // store.
+        var shipmentsQuery = db.Shipments.AsNoTracking().Where(s => s.CustomerCode == info.CustomerCode);
         shipmentsQuery = ApplyPartnerFilter(shipmentsQuery, permissions, restricted, partnerName);
 
         var shipments = await shipmentsQuery.ToListAsync(cancellationToken);
@@ -403,28 +497,41 @@ public sealed class IntegrationShipmentQueryService(
         }
 
         var references = shipments.Select(s => s.ReferenceNo).ToList();
-        var loadingDates = await db.ShipmentDates.AsNoTracking()
-            .Where(d => references.Contains(d.ReferenceNo))
-            .ToDictionaryAsync(d => d.ReferenceNo, d => d.LoadingDate, cancellationToken);
+        var dates = await ToDictionaryTolerantAsync(
+            db.ShipmentDates.AsNoTracking().Where(d => references.Contains(d.ReferenceNo)),
+            d => d.ReferenceNo, d => d, cancellationToken);
+        var breakdowns = await TransferStatusBreakdownsAsync(db, shipments, dates, cancellationToken);
 
         var items = shipments
-            .Select(s => new
+            .Select(s =>
             {
-                Shipment = s,
-                Status = ParseStatus(s.CurrentStatus),
-                Performance = ParsePerformance(s.Performance),
-                LoadingDate = loadingDates.GetValueOrDefault(s.ReferenceNo)
+                var d = dates.GetValueOrDefault(s.ReferenceNo);
+                var milestoneStatus = ShipmentStatusAggregator.MilestoneStatus(d);
+
+                return new
+                {
+                    Shipment = s,
+                    Status = ShipmentStatusAggregator.AggregateShipmentStatus(milestoneStatus, breakdowns.GetValueOrDefault(s.ReferenceNo, [])),
+                    Performance = ParsePerformance(s.Performance),
+                    LoadingDate = d?.LoadingDate
+                };
             })
+            .Where(i => i.Status < TrackingStatus.ArrivedAtStore)
             .ToList();
+
+        if (items.Count == 0)
+        {
+            return InTransitSummary.Empty;
+        }
 
         var today = clock.Today;
 
         return new InTransitSummary
         {
             ShipmentCount = items.Count,
-            TransferCount = shipments.Sum(s => s.TotalTransfers ?? 0),
-            TotalBoxes = shipments.Sum(s => s.TotalBoxes ?? 0),
-            TotalItems = shipments.Sum(s => s.TotalItems ?? 0),
+            TransferCount = items.Sum(i => i.Shipment.TotalTransfers ?? 0),
+            TotalBoxes = items.Sum(i => i.Shipment.TotalBoxes ?? 0),
+            TotalItems = items.Sum(i => i.Shipment.TotalItems ?? 0),
             OverdueCount = items.Count(i => i.Performance == PerformanceStatus.Overdue),
             AtRiskCount = items.Count(i => i.Performance == PerformanceStatus.AtRisk),
             ByStatus =
@@ -575,6 +682,11 @@ public sealed class IntegrationShipmentQueryService(
             query = query.Where(s => s.ReferenceNo.Contains(term) || s.InvoiceNo.Contains(term));
         }
 
+        // Filters against the stored CurrentStatus text, which only ever reaches AtCrossdock -
+        // InTransitToStore/ArrivedAtStore are computed from transfers at read time (see
+        // AggregateShipmentStatus) and never written back here. Filtering by either of those two
+        // statuses will therefore find nothing even though rows display them - the same
+        // paging-vs-computed-status tradeoff as the Transfers grid's status filter above.
         if (filter.Statuses is { Count: > 0 })
         {
             var labels = filter.Statuses.Select(v => v.ToDisplay()).ToList();
@@ -633,6 +745,21 @@ public sealed class IntegrationShipmentQueryService(
             .FirstOrDefaultAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Groups a query's rows by key into a dictionary, tolerating duplicate keys by keeping
+    /// whichever row is seen first rather than throwing. None of LTS_ShipmentDates.ReferenceNo or
+    /// LTS_ShipmentTransferDates.TransferNo have a unique constraint in the hand-written DDL, so a
+    /// duplicate row (bad data, a race between writers, manual SQL) is possible in practice and
+    /// must degrade gracefully here rather than take the whole page down with it.
+    /// </summary>
+    private static async Task<Dictionary<TKey, TValue>> ToDictionaryTolerantAsync<TSource, TKey, TValue>(
+        IQueryable<TSource> query, Func<TSource, TKey> keySelector, Func<TSource, TValue> valueSelector,
+        CancellationToken cancellationToken) where TKey : notnull
+    {
+        var items = await query.ToListAsync(cancellationToken);
+        return items.GroupBy(keySelector).ToDictionary(g => g.Key, g => valueSelector(g.First()));
+    }
+
     private static IQueryable<LtsIntegrationShipment> Sort(IQueryable<LtsIntegrationShipment> query, GridRequest request)
     {
         var descending = request.SortDescending;
@@ -682,9 +809,6 @@ public sealed class IntegrationShipmentQueryService(
     /// </summary>
     private static DateOnly? BoxMilestone(IReadOnlyList<LtsIntegrationBox> boxes, Func<LtsIntegrationBox, DateOnly?> selector) =>
         boxes.Count > 0 && boxes.All(b => selector(b) is not null) ? boxes.Max(selector) : null;
-
-    private static TrackingStatus ParseStatus(string value) =>
-        Enum.GetValues<TrackingStatus>().FirstOrDefault(s => s.ToDisplay() == value, TrackingStatus.Created);
 
     private static PerformanceStatus ParsePerformance(string value) =>
         Enum.GetValues<PerformanceStatus>().FirstOrDefault(p => p.ToDisplay() == value, PerformanceStatus.NotStarted);
