@@ -1,5 +1,4 @@
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Text.Json;
 using LTS.Application.ShipmentFeed;
 using LTS.Infrastructure.Configuration;
@@ -24,13 +23,10 @@ public interface IShipmentFeedClient
 /// <summary>
 /// Mirrors the old (dead) HttpJsonAdapter's HTTP/auth handling (base address from config, bearer
 /// token from Integration:Secrets:{SecretName}, case-insensitive JSON) as a standalone class -
-/// there's only one feed here, so no adapter-registry indirection. Both endpoints wrap their
-/// payload in { IsSuccess, Value, Message }; IsSuccess = false throws with Message so the
-/// runner's per-shipment try/catch can log it and move on.
-///
-/// TBD: the exact query-string parameter names below (customerCode/invoiceNumber) - the shared
-/// spec gave response shapes, not the full request signature. Confirm against the real
-/// API/Swagger; nothing else in the pipeline needs to change if these turn out different.
+/// there's only one feed here, so no adapter-registry indirection. The shared spec documents both
+/// endpoints as wrapping their payload in { IsSuccess, Value, Message }, but it isn't confirmed
+/// the live API actually does that for every call rather than just returning the bare array - so
+/// GetAsync below accepts either shape rather than assuming one.
 /// </summary>
 public sealed class ShipmentFeedClient(
     IHttpClientFactory httpClientFactory,
@@ -83,7 +79,24 @@ public sealed class ShipmentFeedClient(
         using var response = await client.GetAsync(relativePath, cancellationToken);
         response.EnsureSuccessStatusCode();
 
-        var envelope = await response.Content.ReadFromJsonAsync<ApiEnvelope<List<T>>>(SerializerOptions, cancellationToken);
+        var raw = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            logger.LogWarning("Shipment feed got an empty response from {Path}.", relativePath);
+            return [];
+        }
+
+        using var document = JsonDocument.Parse(raw);
+
+        // Bare array: the response is just the list, no envelope.
+        if (document.RootElement.ValueKind == JsonValueKind.Array)
+        {
+            return document.RootElement.Deserialize<List<T>>(SerializerOptions) ?? [];
+        }
+
+        // Otherwise, the documented { IsSuccess, Value, Message } envelope.
+        var envelope = document.RootElement.Deserialize<ApiEnvelope<List<T>>>(SerializerOptions);
 
         if (envelope is null)
         {

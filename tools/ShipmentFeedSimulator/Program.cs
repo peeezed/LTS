@@ -23,26 +23,40 @@ var app = builder.Build();
 
 var jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
 
+// Accepts either shape - a bare array, or the documented {IsSuccess, Value, Message} envelope -
+// since it isn't confirmed yet which one the real API actually returns. Whatever you paste here,
+// this figures out which one it is rather than requiring you to strip a wrapper first.
+List<T> ParseEntries<T>(string json)
+{
+    if (string.IsNullOrWhiteSpace(json))
+    {
+        return [];
+    }
+
+    using var document = JsonDocument.Parse(json);
+
+    return document.RootElement.ValueKind == JsonValueKind.Array
+        ? document.RootElement.Deserialize<List<T>>(jsonOptions) ?? []
+        : document.RootElement.Deserialize<ApiEnvelope<List<T>>>(jsonOptions)?.Value ?? [];
+}
+
 app.MapGet("/", () => Results.Content(Page.Html, "text/html"));
 
-// Step 1: parse the GetInvoiceListByCustomerCode response's "Value" array on its own, independent
-// of any detail call - mirrors the real flow, where this call happens first and by itself. Just
-// the array, not the {IsSuccess, Value, Message} envelope - paste whatever's under "Value".
-// Returns just enough of each entry to populate the shipment picker; no DB access here.
+// Step 1: parse the GetInvoiceListByCustomerCode response on its own, independent of any detail
+// call - mirrors the real flow, where this call happens first and by itself. Returns just enough
+// of each entry to populate the shipment picker; no DB access here.
 app.MapPost("/parse-list", (ParseListRequest request) =>
 {
-    List<InvoiceListEntryDto>? entries;
+    List<InvoiceListEntryDto> entries;
 
     try
     {
-        entries = JsonSerializer.Deserialize<List<InvoiceListEntryDto>>(request.ListJson, jsonOptions);
+        entries = ParseEntries<InvoiceListEntryDto>(request.ListJson);
     }
     catch (JsonException exception)
     {
         return Results.BadRequest(new { error = $"Could not parse the List JSON: {exception.Message}" });
     }
-
-    entries ??= [];
 
     if (entries.Count == 0)
     {
@@ -71,18 +85,16 @@ app.MapPost("/simulate", async (SimulateRequest request, ShipmentFeedRunner runn
         return Results.BadRequest(new { error = "Customer code is required." });
     }
 
-    List<InvoiceListEntryDto>? entries;
+    List<InvoiceListEntryDto> entries;
 
     try
     {
-        entries = JsonSerializer.Deserialize<List<InvoiceListEntryDto>>(request.ListJson, jsonOptions);
+        entries = ParseEntries<InvoiceListEntryDto>(request.ListJson);
     }
     catch (JsonException exception)
     {
         return Results.BadRequest(new { error = $"Could not parse the List JSON: {exception.Message}" });
     }
-
-    entries ??= [];
 
     if (request.SelectedIndex < 0 || request.SelectedIndex >= entries.Count)
     {
@@ -91,18 +103,16 @@ app.MapPost("/simulate", async (SimulateRequest request, ShipmentFeedRunner runn
 
     var header = entries[request.SelectedIndex];
 
-    List<InvoiceDetailLineDto>? detailLines;
+    List<InvoiceDetailLineDto> detailLines;
 
     try
     {
-        detailLines = JsonSerializer.Deserialize<List<InvoiceDetailLineDto>>(request.DetailJson, jsonOptions);
+        detailLines = ParseEntries<InvoiceDetailLineDto>(request.DetailJson);
     }
     catch (JsonException exception)
     {
         return Results.BadRequest(new { error = $"Could not parse the Detail JSON: {exception.Message}" });
     }
-
-    detailLines ??= [];
 
     try
     {
