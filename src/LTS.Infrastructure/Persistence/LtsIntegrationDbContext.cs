@@ -1,5 +1,6 @@
 using LTS.Application.Reference;
 using LTS.Domain.Entities;
+using LTS.Domain.Enums;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -29,6 +30,8 @@ public class LtsIntegrationDbContext(DbContextOptions<LtsIntegrationDbContext> o
     public DbSet<LtsIntegrationShipmentTransfer> ShipmentTransfers => Set<LtsIntegrationShipmentTransfer>();
     public DbSet<LtsIntegrationShipmentTransferDate> ShipmentTransferDates => Set<LtsIntegrationShipmentTransferDate>();
     public DbSet<LtsIntegrationBox> Boxes => Set<LtsIntegrationBox>();
+
+    public DbSet<LtsIntegrationKpiTarget> KpiTargets => Set<LtsIntegrationKpiTarget>();
 
     // The seven shipment attribute lookup tables all share the same Code+Description shape, so
     // one shared-type entity (LtsIntegrationAttribute) is mapped onto each rather than declaring
@@ -163,6 +166,14 @@ public class LtsIntegrationDbContext(DbContextOptions<LtsIntegrationDbContext> o
             entity.HasKey(b => new { b.TransferNo, b.PackageNo });
         });
 
+        builder.Entity<LtsIntegrationKpiTarget>(entity =>
+        {
+            entity.ToTable("LTS_KpiTargets");
+            entity.HasKey(t => t.Id);
+            entity.Property(t => t.Id).HasColumnName("ID");
+            entity.Property(t => t.Step).HasConversion<string>().HasMaxLength(30);
+        });
+
         foreach (var (name, table) in new[]
         {
             ("ArrivalCustomsAttribute", "LTS_ArrivalCustoms"),
@@ -250,20 +261,28 @@ public class LtsIntegrationShipment
 }
 
 /// <summary>
-/// One row of LTS_ShipmentDates: a shipment's own milestone dates, one row per ReferenceNo. Only
-/// the actual dates are mapped, not the KPI target/estimate columns the table also carries -
-/// KPI is out of scope for LTS_Integration.
+/// One row of LTS_ShipmentDates: a shipment's own milestone dates, one row per ReferenceNo, plus
+/// the five KPI*Date deadline columns IntegrationKpiCalculator computes and stores (each one sits
+/// immediately before the actual date it gates - see IntegrationKpiCalculator's doc comment for
+/// how they're derived and scored). The EstimatedDepartureDate/EstimatedArrivalDate columns the
+/// table also carries are ETAs, unrelated to KPI, and are still not mapped - nothing in the app
+/// reads or writes them yet.
 /// </summary>
 public class LtsIntegrationShipmentDate
 {
     public int Id { get; set; }
     public required string ReferenceNo { get; set; }
     public DateOnly? LoadingDate { get; set; }
+    public DateOnly? KPICustomsClearanceDate { get; set; }
     public DateOnly? CustomsClearanceDate { get; set; }
+    public DateOnly? KPIDepartureDate { get; set; }
     public DateOnly? DepartureDate { get; set; }
+    public DateOnly? KPIArrivalToDestinationDate { get; set; }
     public DateOnly? ArrivalDate { get; set; }
     public DateOnly? ArrivalCustomsStartDate { get; set; }
+    public DateOnly? KPIArrivalCustomsEndDate { get; set; }
     public DateOnly? ArrivalCustomsEndDate { get; set; }
+    public DateOnly? KPILeadTimeToXdock { get; set; }
     public DateOnly? CrossdockArrivalDate { get; set; }
 }
 
@@ -281,10 +300,15 @@ public class LtsIntegrationShipmentTransfer
     public int? TotalItems { get; set; }
 }
 
-/// <summary>One row of LTS_ShipmentTransferDates: a transfer's crossdock and store dates.</summary>
+/// <summary>
+/// One row of LTS_ShipmentTransferDates: a transfer's crossdock and store dates, plus
+/// KPICrossdockDepartureDate - the deadline for this transfer's own CrossdockDepartureDate, the
+/// one KPI leg (XDock) whose start is on the shipment but whose end is on the transfer.
+/// </summary>
 public class LtsIntegrationShipmentTransferDate
 {
     public required string TransferNo { get; set; }
+    public DateOnly? KPICrossdockDepartureDate { get; set; }
     public DateOnly? CrossdockDepartureDate { get; set; }
     public DateOnly? PlannedStoreArrivalDate { get; set; }
     public DateOnly? StoreArrivalDate { get; set; }
@@ -301,4 +325,26 @@ public class LtsIntegrationBox
     public required string Status { get; set; }
     public DateOnly? PreAcceptanceDate { get; set; }
     public DateOnly? AcceptanceDate { get; set; }
+}
+
+/// <summary>
+/// One row of LTS_KpiTargets: a target duration in days for one IntegrationKpiStep, required to
+/// belong to exactly one country (every country has its own KPI values) and optionally scoped
+/// further by up to four shipment attributes - a null column means "any". ExportType/LoadingPoint/
+/// ArrivalCustoms/TransportType store Description text, matching how LtsIntegrationShipment's own
+/// attribute columns are stored (see its doc comment) - not a Code, so matching a shipment to a
+/// target is a direct string comparison with no resolution step. No effective-dating: editing a
+/// target only affects legs whose start milestone is entered afterward (see IntegrationKpiCalculator).
+/// </summary>
+public class LtsIntegrationKpiTarget
+{
+    public int Id { get; set; }
+    public required int CountryId { get; set; }
+    public required IntegrationKpiStep Step { get; set; }
+    public string? ExportType { get; set; }
+    public string? LoadingPoint { get; set; }
+    public string? ArrivalCustoms { get; set; }
+    public string? TransportType { get; set; }
+    public required int TargetDays { get; set; }
+    public bool IsActive { get; set; } = true;
 }

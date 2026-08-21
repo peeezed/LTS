@@ -19,13 +19,12 @@ namespace LTS.Infrastructure.Tracking;
 /// the end via ShipmentStatusAggregator, the same logic IntegrationShipmentQueryService uses to
 /// compute the same values for display: the shipment capped at AtCrossdock from its own
 /// milestones, then InTransitToStore/ArrivedAtStore once its transfers move further; each
-/// transfer seeded from that same floor, then advancing on its own dates. A transfer's
-/// Performance column is not written here - LTS_Integration has no KPI target model to score it
-/// against, so it is left as whatever it already held.
+/// transfer seeded from that same floor, then advancing on its own dates. A transfer's own
+/// Performance column is still not written here - only the shipment's is, scored via
+/// IntegrationKpiCalculator (which does read every touched transfer's KPICrossdockDepartureDate/
+/// CrossdockDepartureDate for the XDock leg, without writing that transfer's Performance).
 ///
-/// Deliberately smaller than the old MilestoneService: Performance cannot be scored against a KPI
-/// target - LTS_Integration has no domain Shipment/KPI target model, and KPI is out of scope here
-/// - so a shipment's only ever moves between NotStarted and NoTarget. No audit trail yet either.
+/// Deliberately smaller than the old MilestoneService in one remaining way: no audit trail yet.
 /// Chronology/future-date validation is kept, since it is cheap and independent of KPI.
 /// </summary>
 public sealed class IntegrationMilestoneService(
@@ -146,7 +145,6 @@ public sealed class IntegrationMilestoneService(
                     db.ShipmentDates.Add(date);
                 }
 
-                shipment.Performance = DerivePerformance(date).ToDisplay();
                 pendingShipmentDates[shipment.ReferenceNo] = date;
                 touchedShipments[shipment.ReferenceNo] = shipment;
             }
@@ -248,9 +246,14 @@ public sealed class IntegrationMilestoneService(
             }
         }
 
+        var kpiTargets = touchedShipments.Count == 0
+            ? []
+            : await db.KpiTargets.AsNoTracking().Where(t => t.IsActive).ToListAsync(cancellationToken);
+
         foreach (var shipment in touchedShipments.Values)
         {
             await RecomputeShipmentStatusAsync(db, shipment, pendingShipmentDates, pendingTransferDates, cancellationToken);
+            await RecomputeKpiAsync(db, shipment, pendingShipmentDates, kpiTargets, clock.Today, cancellationToken);
         }
 
         if (db.ChangeTracker.HasChanges())
@@ -298,6 +301,44 @@ public sealed class IntegrationMilestoneService(
                 transfer.CurrentStatus = status.ToDisplay();
             }
         }
+    }
+
+    /// <summary>
+    /// Recomputes and persists this shipment's KPI deadlines and overall Performance, via the
+    /// shared IntegrationKpiCalculator. Skipped entirely (Performance left as whatever it already
+    /// held) when the shipment's CustomerCode does not resolve to a country - KPI targets are
+    /// scoped by country, so there is nothing to compute against without one; this should not
+    /// happen in practice, since the same CustomerCode match is relied on everywhere else in the
+    /// app too.
+    /// </summary>
+    private static async Task RecomputeKpiAsync(
+        LtsIntegrationDbContext db,
+        LtsIntegrationShipment shipment,
+        IReadOnlyDictionary<string, LtsIntegrationShipmentDate> pendingShipmentDates,
+        IReadOnlyList<LtsIntegrationKpiTarget> kpiTargets,
+        DateOnly today,
+        CancellationToken cancellationToken)
+    {
+        var countryId = await ResolveRawCountryIdAsync(db, shipment.CustomerCode, cancellationToken);
+        if (countryId is null)
+        {
+            return;
+        }
+
+        var date = pendingShipmentDates.GetValueOrDefault(shipment.ReferenceNo)
+            ?? await db.ShipmentDates.FirstOrDefaultAsync(d => d.ReferenceNo == shipment.ReferenceNo, cancellationToken);
+
+        IReadOnlyList<LtsIntegrationShipmentTransferDate> transferDates = [];
+
+        if (date is not null)
+        {
+            transferDates = await IntegrationKpiCalculator.RecomputeDeadlinesAsync(
+                db, shipment, date, countryId.Value, kpiTargets, cancellationToken);
+        }
+
+        shipment.Performance = IntegrationKpiCalculator
+            .EvaluatePerformance(shipment, date, transferDates, today)
+            .ToDisplay();
     }
 
     /// <summary>Rejects a date typed for an event that has not occurred, or one out of order.</summary>
@@ -382,23 +423,21 @@ public sealed class IntegrationMilestoneService(
     private static async Task<int?> ResolveCountryIdAsync(
         LtsIntegrationDbContext db, string customerCode, CancellationToken cancellationToken)
     {
-        var rawId = await db.Countries.AsNoTracking()
-            .Where(c => c.CustomerCode == customerCode)
-            .Select(c => (int?)c.Id)
-            .FirstOrDefaultAsync(cancellationToken);
-
+        var rawId = await ResolveRawCountryIdAsync(db, customerCode, cancellationToken);
         return rawId is { } id ? IntegrationCountryId.ToAppId(id) : null;
     }
 
     /// <summary>
-    /// Without a KPI target to score against, Performance can only say whether the shipment has
-    /// started moving, not whether it is on time: NotStarted while every shipment milestone date
-    /// is empty, NoTarget as soon as any of them has a date.
+    /// The raw LTS_Countries.ID a shipment's CustomerCode resolves to, or null - the id space
+    /// LTS_KpiTargets.CountryId is stored in, unlike the app-wide offset id ResolveCountryIdAsync
+    /// returns for permission checks.
     /// </summary>
-    private static PerformanceStatus DerivePerformance(LtsIntegrationShipmentDate date) =>
-        MilestoneCatalog.ShipmentMilestones.Any(m => ShipmentStatusAggregator.GetDate(date, m.Type) is not null)
-            ? PerformanceStatus.NoTarget
-            : PerformanceStatus.NotStarted;
+    private static Task<int?> ResolveRawCountryIdAsync(
+        LtsIntegrationDbContext db, string customerCode, CancellationToken cancellationToken) =>
+        db.Countries.AsNoTracking()
+            .Where(c => c.CustomerCode == customerCode)
+            .Select(c => (int?)c.Id)
+            .FirstOrDefaultAsync(cancellationToken);
 
     private static void SetDate(LtsIntegrationShipmentDate d, MilestoneType type, DateOnly? value)
     {

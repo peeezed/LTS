@@ -106,6 +106,7 @@ public static class DependencyInjection
 
         // Administration.
         services.AddScoped<IKpiAdminService, KpiAdminService>();
+        services.AddScoped<IIntegrationKpiAdminService, IntegrationKpiAdminService>();
         services.AddScoped<IIntegrationAdminService, IntegrationAdminService>();
         services.AddScoped<IUserAdminService, UserAdminService>();
         services.AddScoped<IMasterDataService, MasterDataService>();

@@ -1,41 +1,56 @@
 @using LTS.Application.Kpi
+@using LTS.Domain.Enums
 @using LTS.Domain.Kpi
 
 <MudDialog>
     <DialogContent>
         <MudGrid Spacing="2">
             <MudItem xs="12">
-                <MudSelect T="KpiStep" @bind-Value="_step" Label="Step" Variant="Variant.Outlined"
+                <MudSelect T="IntegrationKpiStep" @bind-Value="_step" Label="KPI Leg" Variant="Variant.Outlined"
                            Margin="Margin.Dense" Required="true">
-                    @foreach (var step in KpiStepCatalog.All)
+                    @foreach (var step in IntegrationKpiCatalog.All)
                     {
-                        <MudSelectItem T="KpiStep" Value="@step.Step">@step.DisplayName</MudSelectItem>
+                        <MudSelectItem T="IntegrationKpiStep" Value="@step.Step">@step.DisplayName</MudSelectItem>
                     }
                 </MudSelect>
             </MudItem>
 
             <MudItem xs="12" sm="6">
-                <MudSelect T="int?" @bind-Value="_exportTypeId" Label="Export type" Variant="Variant.Outlined"
-                           Margin="Margin.Dense" Clearable="true" HelperText="Blank means any export type">
-                    @foreach (var type in ExportTypes)
+                <MudSelect T="string?" @bind-Value="_exportType" Label="Export type" Variant="Variant.Outlined"
+                           Margin="Margin.Dense" Clearable="true" HelperText="Blank means any">
+                    @foreach (var option in ExportTypes)
                     {
-                        <MudSelectItem T="int?" Value="@type.Id">@type.Name</MudSelectItem>
+                        <MudSelectItem T="string?" Value="@option.Description">@option.Display</MudSelectItem>
                     }
                 </MudSelect>
             </MudItem>
 
             <MudItem xs="12" sm="6">
-                <MudTextField T="string" @bind-Value="_loadingCountryCode" Label="Loading country"
-                              Variant="Variant.Outlined" Margin="Margin.Dense" MaxLength="2"
-                              HelperText="Two-letter code; blank means any" />
+                <MudSelect T="string?" @bind-Value="_loadingPoint" Label="Loading point" Variant="Variant.Outlined"
+                           Margin="Margin.Dense" Clearable="true" HelperText="Blank means any">
+                    @foreach (var option in LoadingPoints)
+                    {
+                        <MudSelectItem T="string?" Value="@option.Description">@option.Display</MudSelectItem>
+                    }
+                </MudSelect>
             </MudItem>
 
             <MudItem xs="12" sm="6">
-                <MudSelect T="int?" @bind-Value="_arrivalCountryId" Label="Arrival country" Variant="Variant.Outlined"
-                           Margin="Margin.Dense" Clearable="true" HelperText="Blank means any arrival country">
-                    @foreach (var country in Countries)
+                <MudSelect T="string?" @bind-Value="_arrivalCustoms" Label="Arrival customs" Variant="Variant.Outlined"
+                           Margin="Margin.Dense" Clearable="true" HelperText="Blank means any">
+                    @foreach (var option in ArrivalCustomsOptions)
                     {
-                        <MudSelectItem T="int?" Value="@country.Id">@country.Display</MudSelectItem>
+                        <MudSelectItem T="string?" Value="@option.Description">@option.Display</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+
+            <MudItem xs="12" sm="6">
+                <MudSelect T="string?" @bind-Value="_transportType" Label="Transport type" Variant="Variant.Outlined"
+                           Margin="Margin.Dense" Clearable="true" HelperText="Blank means any">
+                    @foreach (var option in TransportTypes)
+                    {
+                        <MudSelectItem T="string?" Value="@option.Description">@option.Display</MudSelectItem>
                     }
                 </MudSelect>
             </MudItem>
@@ -45,25 +60,14 @@
                                  Variant="Variant.Outlined" Margin="Margin.Dense" Required="true" />
             </MudItem>
 
-            <MudItem xs="12" sm="6">
-                <MudDatePicker @bind-Date="_effectiveFrom" Label="Effective from" Variant="Variant.Outlined"
-                               Margin="Margin.Dense" DateFormat="yyyy-MM-dd" />
-            </MudItem>
-
-            <MudItem xs="12" sm="6">
-                <MudDatePicker @bind-Date="_effectiveTo" Label="Effective to" Variant="Variant.Outlined"
-                               Margin="Margin.Dense" DateFormat="yyyy-MM-dd" Clearable="true"
-                               HelperText="Blank means still in force" />
-            </MudItem>
-
             <MudItem xs="12">
                 <MudSwitch T="bool" @bind-Value="_isActive" Label="Active" Color="Color.Primary" />
             </MudItem>
         </MudGrid>
 
         <MudAlert Severity="Severity.Info" Dense="true" Class="mt-2">
-            Shipments are scored against the target in force on their loading date, so editing this
-            row does not re-score journeys that already happened under an older target.
+            Editing this target only affects legs whose start date is entered from now on — it does not
+            re-score a leg that has already been scored against the previous target.
         </MudAlert>
     </DialogContent>
     <DialogActions>
@@ -76,52 +80,45 @@
     [CascadingParameter]
     private IMudDialogInstance Dialog { get; set; } = default!;
 
-    [Parameter] public KpiTargetRow? Row { get; set; }
-    [Parameter] public IReadOnlyList<LookupDto> ExportTypes { get; set; } = [];
-    [Parameter] public IReadOnlyList<CountryDto> Countries { get; set; } = [];
+    [Parameter] public IntegrationKpiTargetRow? Row { get; set; }
+    [Parameter] public IReadOnlyList<AttributeDto> ExportTypes { get; set; } = [];
+    [Parameter] public IReadOnlyList<AttributeDto> LoadingPoints { get; set; } = [];
+    [Parameter] public IReadOnlyList<AttributeDto> ArrivalCustomsOptions { get; set; } = [];
+    [Parameter] public IReadOnlyList<AttributeDto> TransportTypes { get; set; } = [];
 
-    /// <summary>Pre-selects the country the administrator is currently working in.</summary>
-    [Parameter] public int DefaultArrivalCountryId { get; set; }
-
-    private KpiStep _step = KpiStep.DepartureToArrival;
-    private int? _exportTypeId;
-    private string? _loadingCountryCode;
-    private int? _arrivalCountryId;
+    private IntegrationKpiStep _step = IntegrationKpiStep.LoadingToCustomsClearance;
+    private string? _exportType;
+    private string? _loadingPoint;
+    private string? _arrivalCustoms;
+    private string? _transportType;
     private int _targetDays = 3;
-    private DateTime? _effectiveFrom = DateTime.UtcNow.Date;
-    private DateTime? _effectiveTo;
     private bool _isActive = true;
 
     protected override void OnInitialized()
     {
         if (Row is null)
         {
-            _arrivalCountryId = DefaultArrivalCountryId;
             return;
         }
 
         _step = Row.Step;
-        _exportTypeId = Row.ExportTypeId;
-        _loadingCountryCode = Row.LoadingCountryCode;
-        _arrivalCountryId = Row.ArrivalCountryId;
+        _exportType = Row.ExportType;
+        _loadingPoint = Row.LoadingPoint;
+        _arrivalCustoms = Row.ArrivalCustoms;
+        _transportType = Row.TransportType;
         _targetDays = Row.TargetDays;
-        _effectiveFrom = Row.EffectiveFrom.ToDateTime(TimeOnly.MinValue);
-        _effectiveTo = Row.EffectiveTo?.ToDateTime(TimeOnly.MinValue);
         _isActive = Row.IsActive;
     }
 
-    private void Save() => Dialog.Close(DialogResult.Ok(new KpiTargetInput
+    private void Save() => Dialog.Close(DialogResult.Ok(new IntegrationKpiTargetInput
     {
         Id = Row?.Id,
         Step = _step,
-        ExportTypeId = _exportTypeId,
-        LoadingCountryCode = string.IsNullOrWhiteSpace(_loadingCountryCode)
-            ? null
-            : _loadingCountryCode.Trim().ToUpperInvariant(),
-        ArrivalCountryId = _arrivalCountryId,
+        ExportType = _exportType,
+        LoadingPoint = _loadingPoint,
+        ArrivalCustoms = _arrivalCustoms,
+        TransportType = _transportType,
         TargetDays = _targetDays,
-        EffectiveFrom = DateOnly.FromDateTime(_effectiveFrom ?? DateTime.UtcNow.Date),
-        EffectiveTo = _effectiveTo is null ? null : DateOnly.FromDateTime(_effectiveTo.Value),
         IsActive = _isActive
     }));
 

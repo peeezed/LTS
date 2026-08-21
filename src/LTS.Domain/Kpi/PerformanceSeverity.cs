@@ -18,6 +18,11 @@ public static class PerformanceSeverity
         PerformanceStatus.AtRisk => 4,
         PerformanceStatus.Late => 5,
         PerformanceStatus.Overdue => 6,
+
+        // A shipment missing required attribute data can't be scored against any leg at all -
+        // that's a more urgent problem than any single late/overdue leg, since it means KPI
+        // visibility is blocked entirely until the data is fixed.
+        PerformanceStatus.MissingAttributes => 7,
         _ => 0
     };
 

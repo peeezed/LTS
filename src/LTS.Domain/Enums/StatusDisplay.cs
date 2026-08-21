@@ -32,6 +32,7 @@ public static class StatusDisplay
         PerformanceStatus.Overdue => "Overdue",
         PerformanceStatus.OnTime => "On Time",
         PerformanceStatus.Late => "Late",
+        PerformanceStatus.MissingAttributes => "Missing Attributes",
         _ => status.ToString()
     };
 

@@ -4,9 +4,8 @@
 @inherits CountryPageBase
 @using LTS.Application.Kpi
 @using LTS.Domain.Kpi
-@inject IKpiAdminService Kpi
+@inject IIntegrationKpiAdminService Kpi
 @inject IReferenceDataService Reference
-@inject IJSRuntime JS
 @inject ISnackbar Snackbar
 @inject IDialogService Dialogs
 
@@ -17,32 +16,13 @@
 {
     <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
 }
-else if (_unavailable)
-{
-    <MudAlert Severity="Severity.Warning">
-        KPI targets could not be loaded. This page still reads from the old LTS database, which is no
-        longer available.
-    </MudAlert>
-}
 else
 {
     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-1">
         <MudText Typo="Typo.h5">KPI Targets</MudText>
         <MudSpacer />
-        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Download"
-                   OnClick="ExportAsync" Class="mr-2">
-            Export
-        </MudButton>
         @if (CanEdit)
         {
-            <MudFileUpload T="IBrowserFile" FilesChanged="OnFileSelectedAsync" Accept=".xlsx" MaximumFileCount="1"
-                           Class="mr-2">
-                <ActivatorContent>
-                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.UploadFile">
-                        Import
-                    </MudButton>
-                </ActivatorContent>
-            </MudFileUpload>
             <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
                        OnClick="() => EditAsync(null)">
                 Add target
@@ -51,82 +31,30 @@ else
     </MudStack>
 
     <MudText Typo="Typo.body2" Class="mud-text-secondary mb-4">
-        Targets are given in days per step. Leave export type, loading country or arrival country blank to
+        Targets are given in days per KPI leg, for @Country.CountryCode only. Leave an attribute blank to
         mean "any" — the most specific matching row is the one a shipment is scored against.
     </MudText>
 
-    @if (_preview is not null)
-    {
-        <MudPaper Elevation="1" Class="pa-4 mb-4">
-            <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3" Wrap="Wrap.Wrap">
-                <MudText Typo="Typo.subtitle1">Import preview — @_preview.FileName</MudText>
-                <MudSpacer />
-                <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Filled">
-                    @_preview.ValidRows.Count valid
-                </MudChip>
-                @if (_preview.InvalidRows.Count > 0)
-                {
-                    <MudChip T="string" Size="Size.Small" Color="Color.Error" Variant="Variant.Filled">
-                        @_preview.InvalidRows.Count rejected
-                    </MudChip>
-                }
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="ml-2"
-                           Disabled="@(!_preview.CanImport)" OnClick="CommitImportAsync">
-                    Apply import
-                </MudButton>
-                <MudButton Variant="Variant.Text" OnClick="() => _preview = null">Cancel</MudButton>
-            </MudStack>
-
-            @foreach (var error in _preview.FileErrors)
-            {
-                <MudAlert Severity="Severity.Error" Dense="true" Class="mb-2">@error</MudAlert>
-            }
-
-            <MudTable Items="_preview.Rows" Dense="true" Height="280px" FixedHeader="true" Elevation="0">
-                <HeaderContent>
-                    <MudTh>Row</MudTh>
-                    <MudTh>Target</MudTh>
-                    <MudTh>Status</MudTh>
-                </HeaderContent>
-                <RowTemplate>
-                    <MudTd>@context.RowNumber</MudTd>
-                    <MudTd>@context.Description</MudTd>
-                    <MudTd>
-                        @if (context.IsValid)
-                        {
-                            <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Text">OK</MudChip>
-                        }
-                        else
-                        {
-                            <MudText Typo="Typo.body2" Color="Color.Error">@context.Error</MudText>
-                        }
-                    </MudTd>
-                </RowTemplate>
-            </MudTable>
-        </MudPaper>
-    }
-
-    <MudDataGrid T="KpiTargetRow" Items="_targets" Dense="true" Hover="true" Striped="true"
+    <MudDataGrid T="IntegrationKpiTargetRow" Items="_targets" Dense="true" Hover="true" Striped="true"
                  Groupable="true" SortMode="SortMode.Single" Elevation="1" RowsPerPage="50">
         <Columns>
-            <PropertyColumn Property="x => x.StepName" Title="Step" Grouping="true" />
+            <PropertyColumn Property="x => x.StepName" Title="KPI Leg" Grouping="true" />
             <TemplateColumn Title="Export Type">
                 <CellTemplate>@(context.Item.ExportType ?? "Any")</CellTemplate>
             </TemplateColumn>
-            <TemplateColumn Title="Loading Country">
-                <CellTemplate>@(context.Item.LoadingCountryCode ?? "Any")</CellTemplate>
+            <TemplateColumn Title="Loading Point">
+                <CellTemplate>@(context.Item.LoadingPoint ?? "Any")</CellTemplate>
             </TemplateColumn>
-            <TemplateColumn Title="Arrival Country">
-                <CellTemplate>@(context.Item.ArrivalCountry ?? "Any")</CellTemplate>
+            <TemplateColumn Title="Arrival Customs">
+                <CellTemplate>@(context.Item.ArrivalCustoms ?? "Any")</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn Title="Transport Type">
+                <CellTemplate>@(context.Item.TransportType ?? "Any")</CellTemplate>
             </TemplateColumn>
             <PropertyColumn Property="x => x.TargetDays" Title="Target (days)" />
-            <PropertyColumn Property="x => x.EffectiveFrom" Title="Effective From" Format="yyyy-MM-dd" />
-            <TemplateColumn Title="Effective To">
-                <CellTemplate>@(context.Item.EffectiveTo?.ToString("yyyy-MM-dd") ?? "—")</CellTemplate>
-            </TemplateColumn>
             <TemplateColumn Title="Precedence">
                 <CellTemplate>
-                    <MudTooltip Text="How many keys this row pins down. Higher wins.">
+                    <MudTooltip Text="How many attributes this row pins down. Higher wins.">
                         <MudChip T="string" Size="Size.Small" Variant="Variant.Text">@context.Item.Specificity</MudChip>
                     </MudTooltip>
                 </CellTemplate>
@@ -152,7 +80,7 @@ else
             }
         </Columns>
         <PagerContent>
-            <MudDataGridPager T="KpiTargetRow" />
+            <MudDataGridPager T="IntegrationKpiTargetRow" />
         </PagerContent>
     </MudDataGrid>
 }
@@ -161,55 +89,46 @@ else
 @code {
     protected override string PageKey => PageKeys.AdminKpi;
 
-    private const long MaxUploadBytes = 5 * 1024 * 1024;
+    private IReadOnlyList<IntegrationKpiTargetRow> _targets = [];
+    private IReadOnlyList<AttributeDto> _exportTypes = [];
+    private IReadOnlyList<AttributeDto> _loadingPoints = [];
+    private IReadOnlyList<AttributeDto> _arrivalCustoms = [];
+    private IReadOnlyList<AttributeDto> _transportTypes = [];
 
-    private IReadOnlyList<KpiTargetRow> _targets = [];
-    private IReadOnlyList<LookupDto> _exportTypes = [];
-    private IReadOnlyList<CountryDto> _countries = [];
-    private KpiImportPreview? _preview;
-    private bool _unavailable;
-
-    // KPI targets still live entirely on the old database, which no longer exists - this whole
-    // page is out of scope for the LTS_Integration migration until it is rebuilt against it.
     protected override async Task OnCountryReadyAsync()
     {
-        try
-        {
-            _exportTypes = await Reference.GetLookupsAsync(LookupKind.ExportType);
-            _countries = await Reference.GetCountriesAsync();
-            await LoadAsync();
-            _unavailable = false;
-        }
-        catch (Exception)
-        {
-            _unavailable = true;
-        }
+        _exportTypes = await Reference.GetIntegrationAttributesAsync(AttributeKind.ExportType);
+        _loadingPoints = await Reference.GetIntegrationAttributesAsync(AttributeKind.LoadingPoint);
+        _arrivalCustoms = await Reference.GetIntegrationAttributesAsync(AttributeKind.ArrivalCustoms);
+        _transportTypes = await Reference.GetIntegrationAttributesAsync(AttributeKind.TransportType);
+        await LoadAsync();
     }
 
     private async Task LoadAsync() => _targets = await Kpi.GetTargetsAsync(CountryId);
 
-    private async Task EditAsync(KpiTargetRow? row)
+    private async Task EditAsync(IntegrationKpiTargetRow? row)
     {
         var parameters = new DialogParameters<KpiTargetDialog>
         {
             { x => x.Row, row },
             { x => x.ExportTypes, _exportTypes },
-            { x => x.Countries, _countries },
-            { x => x.DefaultArrivalCountryId, CountryId }
+            { x => x.LoadingPoints, _loadingPoints },
+            { x => x.ArrivalCustomsOptions, _arrivalCustoms },
+            { x => x.TransportTypes, _transportTypes }
         };
 
         var dialog = await Dialogs.ShowAsync<KpiTargetDialog>(
             row is null ? "Add KPI target" : "Edit KPI target", parameters);
 
         var result = await dialog.Result;
-        if (result is null || result.Canceled || result.Data is not KpiTargetInput input)
+        if (result is null || result.Canceled || result.Data is not IntegrationKpiTargetInput input)
         {
             return;
         }
 
         try
         {
-            await Kpi.SaveAsync(input);
+            await Kpi.SaveAsync(CountryId, input);
             Snackbar.Add("KPI target saved.", Severity.Success);
             await LoadAsync();
         }
@@ -219,7 +138,7 @@ else
         }
     }
 
-    private async Task DeleteAsync(KpiTargetRow row)
+    private async Task DeleteAsync(IntegrationKpiTargetRow row)
     {
         var confirmed = await Dialogs.ShowMessageBox(
             "Delete KPI target",
@@ -233,50 +152,6 @@ else
 
         await Kpi.DeleteAsync(row.Id);
         Snackbar.Add("KPI target deleted.", Severity.Success);
-        await LoadAsync();
-    }
-
-    private async Task ExportAsync()
-    {
-        var bytes = await Kpi.ExportAsync(CountryId);
-        await JS.InvokeVoidAsync("ltsDownload", $"LTS-kpi-targets-{Country.CountryCode}.xlsx",
-            Convert.ToBase64String(bytes));
-    }
-
-    private async Task OnFileSelectedAsync(IBrowserFile? file)
-    {
-        if (file is null)
-        {
-            return;
-        }
-
-        using var buffer = new MemoryStream();
-        await using (var source = file.OpenReadStream(MaxUploadBytes))
-        {
-            await source.CopyToAsync(buffer);
-        }
-
-        buffer.Position = 0;
-        _preview = await Kpi.ParseAsync(buffer, file.Name);
-    }
-
-    private async Task CommitImportAsync()
-    {
-        if (_preview is null)
-        {
-            return;
-        }
-
-        var result = await Kpi.CommitAsync(_preview);
-
-        Snackbar.Add($"Imported {result.Created} new and {result.Updated} updated target(s).", Severity.Success);
-
-        foreach (var error in result.Errors)
-        {
-            Snackbar.Add(error, Severity.Error);
-        }
-
-        _preview = null;
         await LoadAsync();
     }
 }

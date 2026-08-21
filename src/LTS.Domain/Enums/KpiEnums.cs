@@ -50,5 +50,12 @@ public enum PerformanceStatus
     OnTime = 5,
 
     /// <summary>Completed past the target.</summary>
-    Late = 6
+    Late = 6,
+
+    /// <summary>
+    /// One of the shipment's required KPI-scoping attributes (Export Type, Loading Point, Arrival
+    /// Customs, Transport Type) is missing, so no leg could be resolved against a target at all -
+    /// distinct from <see cref="NoTarget"/>, which means resolution ran but nothing matched.
+    /// </summary>
+    MissingAttributes = 7
 }
