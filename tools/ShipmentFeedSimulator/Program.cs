@@ -25,6 +25,45 @@ var jsonOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true
 
 app.MapGet("/", () => Results.Content(Page.Html, "text/html"));
 
+// Step 1: parse the GetInvoiceListByCustomerCode response's "Value" array on its own, independent
+// of any detail call - mirrors the real flow, where this call happens first and by itself. Just
+// the array, not the {IsSuccess, Value, Message} envelope - paste whatever's under "Value".
+// Returns just enough of each entry to populate the shipment picker; no DB access here.
+app.MapPost("/parse-list", (ParseListRequest request) =>
+{
+    List<InvoiceListEntryDto>? entries;
+
+    try
+    {
+        entries = JsonSerializer.Deserialize<List<InvoiceListEntryDto>>(request.ListJson, jsonOptions);
+    }
+    catch (JsonException exception)
+    {
+        return Results.BadRequest(new { error = $"Could not parse the List JSON: {exception.Message}" });
+    }
+
+    entries ??= [];
+
+    if (entries.Count == 0)
+    {
+        return Results.BadRequest(new { error = "The List JSON has no entries." });
+    }
+
+    var summary = entries.Select((e, index) => new
+    {
+        index,
+        invoiceNumber = e.InvoiceNumber,
+        exportNumber = e.ExportNumber,
+        invoiceDate = e.InvoiceDate
+    });
+
+    return Results.Ok(new { entries = summary });
+});
+
+// Step 2: fetch (paste) the GetInvoiceDetailByInvoiceNumber response for whichever shipment was
+// picked from step 1's list, and run it through the real standardize+upsert path. The list JSON
+// is re-sent rather than cached server-side - this tool has no session state, only what's on the
+// page - and re-parsing it here is cheap and keeps the two calls genuinely independent.
 app.MapPost("/simulate", async (SimulateRequest request, ShipmentFeedRunner runner) =>
 {
     if (string.IsNullOrWhiteSpace(request.CustomerCode))
@@ -32,35 +71,38 @@ app.MapPost("/simulate", async (SimulateRequest request, ShipmentFeedRunner runn
         return Results.BadRequest(new { error = "Customer code is required." });
     }
 
-    ApiEnvelope<List<InvoiceListEntryDto>>? listEnvelope;
-    ApiEnvelope<List<InvoiceDetailLineDto>>? detailEnvelope;
+    List<InvoiceListEntryDto>? entries;
 
     try
     {
-        listEnvelope = JsonSerializer.Deserialize<ApiEnvelope<List<InvoiceListEntryDto>>>(request.ListJson, jsonOptions);
+        entries = JsonSerializer.Deserialize<List<InvoiceListEntryDto>>(request.ListJson, jsonOptions);
     }
     catch (JsonException exception)
     {
         return Results.BadRequest(new { error = $"Could not parse the List JSON: {exception.Message}" });
     }
 
+    entries ??= [];
+
+    if (request.SelectedIndex < 0 || request.SelectedIndex >= entries.Count)
+    {
+        return Results.BadRequest(new { error = "Selected shipment is out of range - reload the list and pick again." });
+    }
+
+    var header = entries[request.SelectedIndex];
+
+    List<InvoiceDetailLineDto>? detailLines;
+
     try
     {
-        detailEnvelope = JsonSerializer.Deserialize<ApiEnvelope<List<InvoiceDetailLineDto>>>(request.DetailJson, jsonOptions);
+        detailLines = JsonSerializer.Deserialize<List<InvoiceDetailLineDto>>(request.DetailJson, jsonOptions);
     }
     catch (JsonException exception)
     {
         return Results.BadRequest(new { error = $"Could not parse the Detail JSON: {exception.Message}" });
     }
 
-    var header = listEnvelope?.Value?.FirstOrDefault();
-
-    if (header is null)
-    {
-        return Results.BadRequest(new { error = "The List JSON has no entries under \"Value\"." });
-    }
-
-    var detailLines = (IReadOnlyList<InvoiceDetailLineDto>?)detailEnvelope?.Value ?? [];
+    detailLines ??= [];
 
     try
     {
@@ -75,7 +117,9 @@ app.MapPost("/simulate", async (SimulateRequest request, ShipmentFeedRunner runn
 
 app.Run("http://localhost:5299");
 
-internal sealed record SimulateRequest(string CustomerCode, string ListJson, string DetailJson);
+internal sealed record ParseListRequest(string ListJson);
+
+internal sealed record SimulateRequest(string CustomerCode, string ListJson, int SelectedIndex, string DetailJson);
 
 /// <summary>Never called - see the registration comment above.</summary>
 internal sealed class UnusedShipmentFeedClient : IShipmentFeedClient
