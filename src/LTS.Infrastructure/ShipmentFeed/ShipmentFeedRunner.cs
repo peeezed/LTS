@@ -29,6 +29,29 @@ public sealed class ShipmentFeedRunner(
     IClock clock,
     ILogger<ShipmentFeedRunner> logger)
 {
+    /// <summary>
+    /// Runs one shipment through the exact same standardize+upsert path as a real poll, but fed
+    /// from already-parsed data instead of a live HTTP call - for the local simulator tool
+    /// (tools/ShipmentFeedSimulator) to exercise the real pipeline against LTS_Integration without
+    /// needing real API access. Unlike RunAsync, this does not write a staging row - staging is
+    /// about auditing real fetches, not manual testing - and it standardizes/upserts exactly one
+    /// shipment rather than looping over every configured country.
+    /// </summary>
+    public async Task<StandardizedShipmentFields> SimulateAsync(
+        string customerCode, InvoiceListEntryDto header, IReadOnlyList<InvoiceDetailLineDto> detailLines,
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+
+        var lookups = await AttributeCodeLookupLoader.LoadAsync(db, [header], cancellationToken);
+        var raw = ShipmentFeedCombiner.Combine(header, detailLines);
+
+        await UpsertShipmentAsync(db, customerCode, raw, lookups, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+
+        return ShipmentStandardizer.Standardize(raw, lookups);
+    }
+
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
         List<(string CustomerCode, string? CountryCode)> countries;
