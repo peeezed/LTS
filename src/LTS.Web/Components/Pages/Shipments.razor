@@ -32,7 +32,20 @@ else
             <PropertyColumn Property="x => x.InvoiceDate" Title="Invoice Date" Format="yyyy-MM-dd" />
 
             <TemplateColumn Title="Current Status" SortBy="x => x.CurrentStatus">
-                <CellTemplate><StatusChip Status="context.Item.CurrentStatus" /></CellTemplate>
+                <CellTemplate>
+                    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+                        <StatusChip Status="context.Item.CurrentStatus" />
+                        @if (TransferProgressText(context.Item) is { } progress)
+                        {
+                            <MudTooltip Text="@progress">
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Color.Primary"
+                                         Icon="@Icons.Material.Filled.LocalShipping">
+                                    @MovedTransferCount(context.Item)
+                                </MudChip>
+                            </MudTooltip>
+                        }
+                    </MudStack>
+                </CellTemplate>
             </TemplateColumn>
 
             <TemplateColumn Title="Performance" SortBy="x => x.Performance">
@@ -112,4 +125,23 @@ else
 
     protected override Task OnCountryReadyAsync() =>
         _grid is null ? Task.CompletedTask : _grid.ReloadServerData();
+
+    /// <summary>
+    /// How many of this shipment's transfers have moved past its own (crossdock-capped) status -
+    /// the number shown on the badge next to the status chip. Zero when none have, in which case
+    /// the badge is hidden entirely: the plain status chip already tells the whole story.
+    /// </summary>
+    private static int MovedTransferCount(ShipmentRow row) =>
+        row.TransferStatusBreakdown.Where(b => b.Status > row.CurrentStatus).Sum(b => b.Count);
+
+    /// <summary>The badge's tooltip: the full per-status transfer breakdown, or null to hide the badge.</summary>
+    private static string? TransferProgressText(ShipmentRow row)
+    {
+        if (MovedTransferCount(row) == 0)
+        {
+            return null;
+        }
+
+        return string.Join(" · ", row.TransferStatusBreakdown.Select(b => $"{b.Count} {b.Status.ToDisplay()}"));
+    }
 }

@@ -11,16 +11,22 @@ using Microsoft.EntityFrameworkCore;
 namespace LTS.Infrastructure.Tracking;
 
 /// <summary>
-/// Writes shipment-level milestone dates into LTS_Integration's LTS_ShipmentDates, upserting by
-/// ReferenceNo, and keeps LTS_Shipments.CurrentStatus/Performance in step with them. Transfer-level
-/// dates are not handled here yet - see IntegrationShipmentQueryService for the read side these
-/// dates feed.
+/// Writes milestone dates into LTS_Integration: shipment-level ones into LTS_ShipmentDates
+/// (upserting by ReferenceNo), transfer-level ones into LTS_ShipmentTransferDates (upserting by
+/// TransferNo). Every shipment touched by a batch - whether directly, via a shipment-level
+/// change, or indirectly, via one of its transfers - gets both LTS_Shipments.CurrentStatus and
+/// every one of its transfers' LTS_ShipmentTransfers.CurrentStatus recomputed and persisted at
+/// the end via ShipmentStatusAggregator, the same logic IntegrationShipmentQueryService uses to
+/// compute the same values for display: the shipment capped at AtCrossdock from its own
+/// milestones, then InTransitToStore/ArrivedAtStore once its transfers move further; each
+/// transfer seeded from that same floor, then advancing on its own dates. A transfer's
+/// Performance column is not written here - LTS_Integration has no KPI target model to score it
+/// against, so it is left as whatever it already held.
 ///
-/// Deliberately smaller than the old MilestoneService: CurrentStatus is derived the same way
-/// (the furthest milestone reached), but Performance cannot be scored against a KPI target -
-/// LTS_Integration has no domain Shipment/KPI target model, and KPI is out of scope here - so it
-/// only ever moves between NotStarted and NoTarget. No audit trail yet either. Chronology/
-/// future-date validation is kept, since it is cheap and independent of KPI.
+/// Deliberately smaller than the old MilestoneService: Performance cannot be scored against a KPI
+/// target - LTS_Integration has no domain Shipment/KPI target model, and KPI is out of scope here
+/// - so a shipment's only ever moves between NotStarted and NoTarget. No audit trail yet either.
+/// Chronology/future-date validation is kept, since it is cheap and independent of KPI.
 /// </summary>
 public sealed class IntegrationMilestoneService(
     IDbContextFactory<LtsIntegrationDbContext> dbFactory, IClock clock) : IIntegrationMilestoneService
@@ -47,22 +53,27 @@ public sealed class IntegrationMilestoneService(
         var applied = 0;
         var unchanged = 0;
 
-        foreach (var change in requested.Where(c => MilestoneCatalog.Get(c.Type).Scope == MilestoneScope.Transfer))
-        {
-            errors.Add(new MilestoneError(change.Reference, change.Type,
-                "Transfer dates are not yet supported for this shipment."));
-        }
-
         var shipmentChanges = requested
             .Where(c => MilestoneCatalog.Get(c.Type).Scope == MilestoneScope.Shipment)
             .ToList();
 
-        if (shipmentChanges.Count == 0)
-        {
-            return new MilestoneApplyResult(applied, unchanged, errors);
-        }
+        var transferChanges = requested
+            .Where(c => MilestoneCatalog.Get(c.Type).Scope == MilestoneScope.Transfer)
+            .ToList();
 
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+
+        // Shipments touched by this batch, directly or via one of their transfers - each gets its
+        // CurrentStatus recomputed once, after every change below has been applied, rather than
+        // inline per loop: a shipment-scope edit must not blindly overwrite a status a transfer
+        // has since carried past AtCrossdock, and a transfer-scope edit needs the shipment's own
+        // (possibly just-edited) dates as its floor. Keyed by ReferenceNo so a shipment touched by
+        // both loops in the same batch is only recomputed once. The pending dictionaries hold the
+        // exact tracked entities already read/created below, so recomputation sees this batch's
+        // own not-yet-saved changes (a brand new date row included) without a second round trip.
+        var touchedShipments = new Dictionary<string, LtsIntegrationShipment>(StringComparer.OrdinalIgnoreCase);
+        var pendingShipmentDates = new Dictionary<string, LtsIntegrationShipmentDate>(StringComparer.OrdinalIgnoreCase);
+        var pendingTransferDates = new Dictionary<string, LtsIntegrationShipmentTransferDate>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var group in shipmentChanges.GroupBy(c => c.Reference, StringComparer.OrdinalIgnoreCase))
         {
@@ -110,14 +121,14 @@ public sealed class IntegrationMilestoneService(
                     continue;
                 }
 
-                var current = GetDate(date, change.Type);
+                var current = ShipmentStatusAggregator.GetDate(date, change.Type);
                 if (current == change.Date)
                 {
                     unchanged++;
                     continue;
                 }
 
-                if (change.Date is { } newDate && Validate(newDate, change.Type, t => GetDate(date, t)) is { } validationError)
+                if (change.Date is { } newDate && Validate(newDate, change.Type, t => ShipmentStatusAggregator.GetDate(date, t)) is { } validationError)
                 {
                     errors.Add(new MilestoneError(change.Reference, change.Type, validationError));
                     continue;
@@ -135,10 +146,111 @@ public sealed class IntegrationMilestoneService(
                     db.ShipmentDates.Add(date);
                 }
 
-                var (status, _) = TrackingStatusCalculator.ForShipment(t => GetDate(date, t));
-                shipment.CurrentStatus = status.ToDisplay();
                 shipment.Performance = DerivePerformance(date).ToDisplay();
+                pendingShipmentDates[shipment.ReferenceNo] = date;
+                touchedShipments[shipment.ReferenceNo] = shipment;
             }
+        }
+
+        foreach (var group in transferChanges.GroupBy(c => c.Reference, StringComparer.OrdinalIgnoreCase))
+        {
+            var transfer = await db.ShipmentTransfers
+                .FirstOrDefaultAsync(t => t.TransferNo == group.Key, cancellationToken);
+
+            if (transfer is null)
+            {
+                errors.AddRange(group.Select(c => new MilestoneError(c.Reference, c.Type,
+                    $"No transfer found with number '{c.Reference}'.")));
+                continue;
+            }
+
+            var shipment = await db.Shipments
+                .FirstOrDefaultAsync(s => s.ReferenceNo == transfer.ReferenceNo, cancellationToken);
+
+            if (shipment is null)
+            {
+                errors.AddRange(group.Select(c => new MilestoneError(c.Reference, c.Type,
+                    $"No shipment found for transfer '{c.Reference}'.")));
+                continue;
+            }
+
+            int? countryId = null;
+            if (options.EnforcePermissions)
+            {
+                countryId = await ResolveCountryIdAsync(db, shipment.CustomerCode, cancellationToken);
+
+                var inScope = countryId is not null
+                    && permissions.HasCountry(countryId.Value)
+                    && await IsPartnerInScopeAsync(db, shipment, permissions, cancellationToken);
+
+                if (!inScope)
+                {
+                    errors.AddRange(group.Select(c => new MilestoneError(c.Reference, c.Type,
+                        "You do not have access to this shipment.")));
+                    continue;
+                }
+            }
+
+            var shipmentDate = await db.ShipmentDates.FirstOrDefaultAsync(
+                d => d.ReferenceNo == shipment.ReferenceNo, cancellationToken);
+
+            var transferDate = await db.ShipmentTransferDates.FirstOrDefaultAsync(
+                d => d.TransferNo == transfer.TransferNo, cancellationToken);
+
+            var isNew = transferDate is null;
+            transferDate ??= new LtsIntegrationShipmentTransferDate { TransferNo = transfer.TransferNo };
+
+            // Chronology has to see the shipment's own dates too - crossdock departure must
+            // follow crossdock arrival, which lives on the shipment, not the transfer.
+            DateOnly? Read(MilestoneType type) =>
+                MilestoneCatalog.Get(type).Scope == MilestoneScope.Transfer
+                    ? GetTransferDate(transferDate, type)
+                    : shipmentDate is null ? null : ShipmentStatusAggregator.GetDate(shipmentDate, type);
+
+            var changedThisTransfer = false;
+
+            foreach (var change in group)
+            {
+                if (options.EnforcePermissions && !permissions.CanEditMilestone(change.Type, countryId!.Value))
+                {
+                    errors.Add(new MilestoneError(change.Reference, change.Type,
+                        $"You are not allowed to enter '{MilestoneCatalog.DisplayName(change.Type)}'."));
+                    continue;
+                }
+
+                var current = GetTransferDate(transferDate, change.Type);
+                if (current == change.Date)
+                {
+                    unchanged++;
+                    continue;
+                }
+
+                if (change.Date is { } newDate && Validate(newDate, change.Type, Read) is { } validationError)
+                {
+                    errors.Add(new MilestoneError(change.Reference, change.Type, validationError));
+                    continue;
+                }
+
+                SetTransferDate(transferDate, change.Type, change.Date);
+                changedThisTransfer = true;
+                applied++;
+            }
+
+            if (changedThisTransfer)
+            {
+                if (isNew)
+                {
+                    db.ShipmentTransferDates.Add(transferDate);
+                }
+
+                pendingTransferDates[transfer.TransferNo] = transferDate;
+                touchedShipments[shipment.ReferenceNo] = shipment;
+            }
+        }
+
+        foreach (var shipment in touchedShipments.Values)
+        {
+            await RecomputeShipmentStatusAsync(db, shipment, pendingShipmentDates, pendingTransferDates, cancellationToken);
         }
 
         if (db.ChangeTracker.HasChanges())
@@ -147,6 +259,45 @@ public sealed class IntegrationMilestoneService(
         }
 
         return new MilestoneApplyResult(applied, unchanged, errors);
+    }
+
+    /// <summary>
+    /// Recomputes and persists one shipment's CurrentStatus, and every one of its transfers'
+    /// LTS_ShipmentTransfers.CurrentStatus alongside it, via the shared
+    /// ShipmentStatusAggregator.ComputeStatusesAsync (also used by ShipmentStatusReconciler) -
+    /// every transfer is refreshed, not just ones this batch directly touched, since a
+    /// shipment-scope change (e.g. Crossdock Arrival) shifts the floor every transfer is seeded
+    /// from. Passes this batch's pending date entities so a date just edited in this same call is
+    /// accounted for immediately rather than missed by a fresh read.
+    /// </summary>
+    private static async Task RecomputeShipmentStatusAsync(
+        LtsIntegrationDbContext db,
+        LtsIntegrationShipment shipment,
+        IReadOnlyDictionary<string, LtsIntegrationShipmentDate> pendingShipmentDates,
+        IReadOnlyDictionary<string, LtsIntegrationShipmentTransferDate> pendingTransferDates,
+        CancellationToken cancellationToken)
+    {
+        var snapshot = await ShipmentStatusAggregator.ComputeStatusesAsync(
+            db, shipment.ReferenceNo, pendingShipmentDates, pendingTransferDates, cancellationToken);
+
+        shipment.CurrentStatus = snapshot.ShipmentStatus.ToDisplay();
+
+        if (snapshot.TransferStatuses.Count == 0)
+        {
+            return;
+        }
+
+        var transfers = await db.ShipmentTransfers
+            .Where(t => t.ReferenceNo == shipment.ReferenceNo)
+            .ToListAsync(cancellationToken);
+
+        foreach (var transfer in transfers)
+        {
+            if (snapshot.TransferStatuses.TryGetValue(transfer.TransferNo, out var status))
+            {
+                transfer.CurrentStatus = status.ToDisplay();
+            }
+        }
     }
 
     /// <summary>Rejects a date typed for an event that has not occurred, or one out of order.</summary>
@@ -165,7 +316,11 @@ public sealed class IntegrationMilestoneService(
         // other: a broker can enter Customs Start before the logistics company has entered
         // Arrival To Target Country. Crossdock Arrival has no owner-chain prerequisite - it is
         // entered manually or arrives from the in-house service independently of everything else.
-        var prerequisite = MilestoneCatalog.ShipmentMilestones
+        // Warehouse's chain spans both scopes (Crossdock Arrival on the shipment, then Crossdock
+        // Departure and Planned/Store Arrival on the transfer), so this searches every milestone,
+        // not just shipment ones - which changes nothing for the other owners, since none of them
+        // own a transfer-scope milestone.
+        var prerequisite = MilestoneCatalog.All
             .Where(d => d.Owner == definition.Owner && d.Sequence < definition.Sequence)
             .OrderByDescending(d => d.Sequence)
             .FirstOrDefault();
@@ -241,21 +396,9 @@ public sealed class IntegrationMilestoneService(
     /// is empty, NoTarget as soon as any of them has a date.
     /// </summary>
     private static PerformanceStatus DerivePerformance(LtsIntegrationShipmentDate date) =>
-        MilestoneCatalog.ShipmentMilestones.Any(m => GetDate(date, m.Type) is not null)
+        MilestoneCatalog.ShipmentMilestones.Any(m => ShipmentStatusAggregator.GetDate(date, m.Type) is not null)
             ? PerformanceStatus.NoTarget
             : PerformanceStatus.NotStarted;
-
-    private static DateOnly? GetDate(LtsIntegrationShipmentDate d, MilestoneType type) => type switch
-    {
-        MilestoneType.Loading => d.LoadingDate,
-        MilestoneType.DepartureCustomsClearance => d.CustomsClearanceDate,
-        MilestoneType.Departure => d.DepartureDate,
-        MilestoneType.ArrivalToTargetCountry => d.ArrivalDate,
-        MilestoneType.CustomsStart => d.ArrivalCustomsStartDate,
-        MilestoneType.CustomsEnd => d.ArrivalCustomsEndDate,
-        MilestoneType.CrossdockArrival => d.CrossdockArrivalDate,
-        _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Not a shipment milestone.")
-    };
 
     private static void SetDate(LtsIntegrationShipmentDate d, MilestoneType type, DateOnly? value)
     {
@@ -269,6 +412,30 @@ public sealed class IntegrationMilestoneService(
             case MilestoneType.CustomsEnd: d.ArrivalCustomsEndDate = value; break;
             case MilestoneType.CrossdockArrival: d.CrossdockArrivalDate = value; break;
             default: throw new ArgumentOutOfRangeException(nameof(type), type, "Not a shipment milestone.");
+        }
+    }
+
+    /// <summary>
+    /// Store Pre Acceptance/Acceptance are not here: they live on LTS_Boxes, one row per box, and
+    /// are never entered manually (AllowsManualEntry is false for both, so CanEditMilestone
+    /// already rejects them before either of these is called).
+    /// </summary>
+    private static DateOnly? GetTransferDate(LtsIntegrationShipmentTransferDate d, MilestoneType type) => type switch
+    {
+        MilestoneType.CrossdockDeparture => d.CrossdockDepartureDate,
+        MilestoneType.PlannedStoreArrival => d.PlannedStoreArrivalDate,
+        MilestoneType.StoreArrival => d.StoreArrivalDate,
+        _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Not a manually-entered transfer milestone.")
+    };
+
+    private static void SetTransferDate(LtsIntegrationShipmentTransferDate d, MilestoneType type, DateOnly? value)
+    {
+        switch (type)
+        {
+            case MilestoneType.CrossdockDeparture: d.CrossdockDepartureDate = value; break;
+            case MilestoneType.PlannedStoreArrival: d.PlannedStoreArrivalDate = value; break;
+            case MilestoneType.StoreArrival: d.StoreArrivalDate = value; break;
+            default: throw new ArgumentOutOfRangeException(nameof(type), type, "Not a manually-entered transfer milestone.");
         }
     }
 }

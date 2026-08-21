@@ -47,6 +47,17 @@ public static class TrackingStatusCalculator
             inheritedDate);
     }
 
+    /// <summary>
+    /// The furthest status a transfer has reached, from a raw date lookup rather than a domain
+    /// <see cref="Transfer"/> - for data sources that carry the same transfer milestone dates but
+    /// not the full domain model, such as LTS_Integration. A transfer with none of its own
+    /// milestone dates set simply shows its shipment's status - see <see cref="ForShipment(Func{MilestoneType,DateOnly?})"/>
+    /// for the shipment-side equivalent this is meant to be seeded from.
+    /// </summary>
+    public static (TrackingStatus Status, DateOnly? Date) ForTransfer(
+        Func<MilestoneType, DateOnly?> dateOf, TrackingStatus shipmentStatus) =>
+        Furthest(MilestoneCatalog.TransferMilestones, dateOf, shipmentStatus, null);
+
     private static (TrackingStatus, DateOnly?) Furthest(
         IEnumerable<MilestoneDefinition> milestones,
         Func<MilestoneType, DateOnly?> dateOf,
