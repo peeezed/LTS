@@ -14,14 +14,16 @@ namespace LTS.Infrastructure.Security;
 /// <summary>
 /// Accounts and their grants live in LtsIntegrationDbContext. A Broker/LogisticsCompany account's
 /// company is SupplierCompanyCode, a Code into LTS_LogisticsCompanies/LTS_Brokers; the old
-/// database's Partner (via PartnerId) is only read for display, for accounts not yet re-linked.
+/// database's Partner (via PartnerId) used to be read for display, for accounts not yet re-linked,
+/// but that database was dropped (see LtsIntegrationDbContext-era commit history) - PartnerId is
+/// still stored on old accounts and still shown as a raw id, but PartnerName can no longer be
+/// resolved from anywhere, so GetUsersAsync no longer tries.
 /// Each public method creates its own short-lived LtsIntegrationDbContext via the factory rather
 /// than sharing one across the request/circuit - it used to share the scoped instance with
 /// Identity's own UserManager store, which occasionally raced with it.
 /// </summary>
 public sealed class UserAdminService(
     IDbContextFactory<LtsIntegrationDbContext> dbFactory,
-    LtsDbContext partnersDb,
     UserManager<AppUser> users,
     IPermissionService permissions,
     ICurrentUser currentUser,
@@ -29,10 +31,6 @@ public sealed class UserAdminService(
 {
     public async Task<IReadOnlyList<UserRow>> GetUsersAsync(CancellationToken cancellationToken = default)
     {
-        var partnerNames = await partnersDb.Partners
-            .AsNoTracking()
-            .ToDictionaryAsync(p => p.Id, p => p.Name, cancellationToken);
-
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
 
         var countryCodes = await db.Countries
@@ -68,8 +66,6 @@ public sealed class UserAdminService(
         [
             .. rows.Select(u =>
             {
-                var partnerName = u.PartnerId is { } partnerId ? partnerNames.GetValueOrDefault(partnerId) : null;
-
                 var companyDisplay = u.SupplierCompanyCode is null
                     ? null
                     : (u.UserType == UserType.Broker ? brokerCodes : logisticsCodes)
@@ -82,8 +78,8 @@ public sealed class UserAdminService(
                     FullName = u.FullName,
                     UserType = u.UserType,
                     PartnerId = u.PartnerId,
-                    PartnerName = partnerName,
-                    CompanyDisplay = companyDisplay ?? partnerName,
+                    PartnerName = null,
+                    CompanyDisplay = companyDisplay,
                     IsActive = u.IsActive,
                     MustChangePassword = u.MustChangePassword,
                     LastLoginAt = u.LastLoginAt,
