@@ -220,15 +220,23 @@ public sealed class ShipmentFeedRunner(
             var (status, currentStatus, performance) = ShipmentFeedDefaults.ForNewShipment();
             seedStatus = status;
 
+            // CustomerCode already tells us the country (it's how a shipment is matched to one at
+            // all - see IntegrationShipmentQueryService), so there's no need to wait for that
+            // service's read-time ArrivalCountry backfill on a shipment created here. That backfill
+            // still runs harmlessly for anything that lands without it some other way.
+            var arrivalCountry = await db.Countries.AsNoTracking()
+                .Where(c => c.CustomerCode == customerCode)
+                .Select(c => c.CountryDescription)
+                .FirstOrDefaultAsync(cancellationToken);
+
             shipment = new LtsIntegrationShipment
             {
                 ReferenceNo = fields.ReferenceNo,
                 InvoiceNo = fields.InvoiceNo,
                 CustomerCode = customerCode,
                 CurrentStatus = currentStatus,
-                Performance = performance
-                // ArrivalCountry: intentionally left null - backfilled at read time by
-                // IntegrationShipmentQueryService.BackfillArrivalCountryAsync.
+                Performance = performance,
+                ArrivalCountry = arrivalCountry
             };
 
             db.Shipments.Add(shipment);
