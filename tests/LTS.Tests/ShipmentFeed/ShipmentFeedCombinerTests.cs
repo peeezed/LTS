@@ -5,73 +5,63 @@ namespace LTS.Tests.ShipmentFeed;
 
 public class ShipmentFeedCombinerTests
 {
-    private static readonly ShipmentReferenceDto Reference = new() { ReferenceNo = "26GE001" };
-
-    private static readonly ShipmentHeaderDetailDto Header = new()
-    {
-        ReferenceNo = "26GE001",
-        InvoiceNo = "INV-001",
-        InvoiceDate = new DateOnly(2026, 8, 1)
-    };
-
-    private static readonly ShipmentAttributesDetailDto Attributes = new()
-    {
-        ArrivalCustoms = "AC001",
-        ExportType = "ET003",
-        TransportType = "TP001",
-        LoadingPoint = "LP001",
-        LogisticsCompany = "C001",
-        BrokerCompany = "BC001"
-    };
-
-    private static readonly ShipmentCountsDetailDto Counts = new()
-    {
-        TotalTransfers = 2,
-        TotalBoxes = 10,
-        TotalItems = 100
-    };
+    private static InvoiceDetailLineDto Line(string packageNumber, string storeCode, decimal quantity) => new(
+        InvoiceNumber: "INV-001",
+        InvoiceDate: DateTimeOffset.UtcNow,
+        ShippingNumber: null,
+        PackageNumber: packageNumber,
+        OptionCode: "OPT1",
+        Barcode: "BAR1",
+        SizeCode: "M",
+        Quantity: quantity,
+        Amount: 10m,
+        StoreCode: storeCode,
+        CurrencyCode: "EUR",
+        ExportNumber: "26GE001",
+        PackageDimension: null,
+        TotalPackageWeight: null);
 
     [Fact]
-    public void All_pieces_present_land_every_field_in_the_combined_record()
+    public void Multiple_lines_for_the_same_store_and_package_sum_into_one_box()
     {
-        var combined = ShipmentFeedCombiner.Combine(Reference, Header, Attributes, Counts);
+        var lines = new[] { Line("PKG1", "ST01", 3), Line("PKG1", "ST01", 5), Line("PKG1", "ST01", 2) };
 
-        combined.ReferenceNo.Should().Be("26GE001");
-        combined.InvoiceNo.Should().Be("INV-001");
-        combined.InvoiceDate.Should().Be(new DateOnly(2026, 8, 1));
-        combined.ArrivalCustoms.Should().Be("AC001");
-        combined.ExportType.Should().Be("ET003");
-        combined.TransportType.Should().Be("TP001");
-        combined.LoadingPoint.Should().Be("LP001");
-        combined.LogisticsCompany.Should().Be("C001");
-        combined.BrokerCompany.Should().Be("BC001");
-        combined.TotalTransfers.Should().Be(2);
-        combined.TotalBoxes.Should().Be(10);
-        combined.TotalItems.Should().Be(100);
+        var transfers = ShipmentFeedCombiner.GroupIntoTransfers("26GE001", lines);
+
+        transfers.Should().ContainSingle();
+        transfers[0].Boxes.Should().ContainSingle(b => b.PackageNo == "PKG1" && b.ProductCount == 10);
     }
 
     [Fact]
-    public void A_missing_detail_call_leaves_its_fields_blank_without_failing_the_merge()
+    public void Multiple_packages_under_one_store_produce_one_transfer_with_summed_totals()
     {
-        var combined = ShipmentFeedCombiner.Combine(Reference, header: null, Attributes, Counts);
+        var lines = new[] { Line("PKG1", "ST01", 3), Line("PKG2", "ST01", 5) };
 
-        combined.ReferenceNo.Should().Be("26GE001"); // falls back to the list entry's reference
-        combined.InvoiceNo.Should().BeNull();
-        combined.InvoiceDate.Should().BeNull();
-        combined.ArrivalCustoms.Should().Be("AC001");
+        var transfers = ShipmentFeedCombiner.GroupIntoTransfers("26GE001", lines);
+
+        transfers.Should().ContainSingle();
+        transfers[0].TotalBoxes.Should().Be(2);
+        transfers[0].TotalItems.Should().Be(8);
+        transfers[0].TransferNo.Should().Be("26GE001_ST01");
+        transfers[0].ReceivingStoreCode.Should().Be("ST01");
     }
 
     [Fact]
-    public void Downstream_standardize_does_not_throw_when_only_the_reference_is_known()
+    public void Multiple_stores_produce_multiple_transfers()
     {
-        var combined = ShipmentFeedCombiner.Combine(Reference, header: null, attributes: null, counts: null);
+        var lines = new[] { Line("PKG1", "ST01", 3), Line("PKG2", "ST02", 5) };
 
-        var lookups = new AttributeCodeLookups(
-            new Dictionary<string, string>(), new Dictionary<string, string>(), new Dictionary<string, string>(),
-            new Dictionary<string, string>(), new Dictionary<string, string>(), new Dictionary<string, string>());
+        var transfers = ShipmentFeedCombiner.GroupIntoTransfers("26GE001", lines);
 
-        var act = () => ShipmentStandardizer.Standardize(combined, lookups);
+        transfers.Should().HaveCount(2);
+        transfers.Select(t => t.TransferNo).Should().BeEquivalentTo("26GE001_ST01", "26GE001_ST02");
+    }
 
-        act.Should().NotThrow();
+    [Fact]
+    public void Empty_detail_lines_produce_no_transfers()
+    {
+        var transfers = ShipmentFeedCombiner.GroupIntoTransfers("26GE001", []);
+
+        transfers.Should().BeEmpty();
     }
 }

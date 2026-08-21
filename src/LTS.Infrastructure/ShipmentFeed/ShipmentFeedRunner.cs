@@ -1,26 +1,27 @@
 using System.Text.Json;
 using LTS.Application.Abstractions;
 using LTS.Application.ShipmentFeed;
+using LTS.Domain.Enums;
 using LTS.Infrastructure.Persistence;
+using LTS.Infrastructure.Tracking;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
 namespace LTS.Infrastructure.ShipmentFeed;
 
-/// <summary>Which of the 3-4 shipment feed calls a staging row came from. Placeholder names, see ShipmentFeedClient.</summary>
+/// <summary>Which of the two shipment feed calls a staging row came from.</summary>
 internal static class ShipmentFeedEndpointKinds
 {
     public const string List = "List";
-    public const string Header = "Header";
-    public const string Attributes = "Attributes";
-    public const string Counts = "Counts";
+    public const string Detail = "Detail";
 }
 
 /// <summary>
-/// Runs one full poll: for every active country with a CustomerCode, list its shipment
-/// references, fetch each one's detail calls, stage every raw response (append-only, regardless
-/// of outcome), combine and standardize each shipment, then upsert it into LTS_Shipments. One
-/// country's failure - or one shipment's - is caught and logged so it never stops the others.
+/// Runs one full poll: for every active country with a CustomerCode, lists its shipments (header +
+/// attribute codes in one call), fetches each one's box/store detail, stages every raw response
+/// (append-only, regardless of outcome), then combines/standardizes/upserts each shipment plus its
+/// transfers and boxes. One country's failure - or one shipment's - is caught and logged so it
+/// never stops the others.
 /// </summary>
 public sealed class ShipmentFeedRunner(
     IDbContextFactory<LtsIntegrationDbContext> dbFactory,
@@ -57,7 +58,7 @@ public sealed class ShipmentFeedRunner(
 
     private async Task RunForCountryAsync(string customerCode, string? countryCode, CancellationToken cancellationToken)
     {
-        var references = await client.FetchShipmentReferencesAsync(customerCode, cancellationToken);
+        var entries = await client.FetchInvoiceListAsync(customerCode, cancellationToken);
 
         await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
         var listFetchedAt = clock.UtcNow;
@@ -71,37 +72,22 @@ public sealed class ShipmentFeedRunner(
             EndpointKind = ShipmentFeedEndpointKinds.List,
             FetchedAt = listFetchedAt,
             ReferenceNo = null,
-            RawPayload = JsonSerializer.Serialize(references),
+            RawPayload = JsonSerializer.Serialize(entries),
             Status = ShipmentFeedStagingStatus.Processed,
             ProcessedAt = listFetchedAt
         });
 
-        var referenceNumbers = references
-            .Select(r => r.ReferenceNo)
-            .Where(r => !string.IsNullOrWhiteSpace(r))
-            .Select(r => r!)
-            .Distinct()
+        var validEntries = entries
+            .Where(e => !string.IsNullOrWhiteSpace(e.ExportNumber) && !string.IsNullOrWhiteSpace(e.InvoiceNumber))
             .ToList();
 
-        var results = new List<(string ReferenceNo, RawShipmentFeedDto Record, List<LtsShipmentFeedStagingRecord> StagingRows)>();
+        var results = new List<(InvoiceListEntryDto Header, IReadOnlyList<InvoiceDetailLineDto> DetailLines, LtsShipmentFeedStagingRecord StagingRow)>();
 
-        foreach (var referenceNo in referenceNumbers)
+        foreach (var entry in validEntries)
         {
-            var stagingRows = new List<LtsShipmentFeedStagingRecord>();
-
-            var header = await FetchDetailAsync(stagingRows, customerCode, countryCode, referenceNo,
-                ShipmentFeedEndpointKinds.Header, () => client.FetchShipmentHeaderAsync(referenceNo, cancellationToken));
-            var attributes = await FetchDetailAsync(stagingRows, customerCode, countryCode, referenceNo,
-                ShipmentFeedEndpointKinds.Attributes, () => client.FetchShipmentAttributesAsync(referenceNo, cancellationToken));
-            var counts = await FetchDetailAsync(stagingRows, customerCode, countryCode, referenceNo,
-                ShipmentFeedEndpointKinds.Counts, () => client.FetchShipmentCountsAsync(referenceNo, cancellationToken));
-
-            db.ShipmentFeedStaging.AddRange(stagingRows);
-
-            var reference = references.First(r => r.ReferenceNo == referenceNo);
-            var combined = ShipmentFeedCombiner.Combine(reference, header, attributes, counts);
-
-            results.Add((referenceNo, combined, stagingRows));
+            var (detailLines, stagingRow) = await FetchDetailAsync(customerCode, countryCode, entry, cancellationToken);
+            db.ShipmentFeedStaging.Add(stagingRow);
+            results.Add((entry, detailLines, stagingRow));
         }
 
         await db.SaveChangesAsync(cancellationToken);
@@ -111,21 +97,33 @@ public sealed class ShipmentFeedRunner(
             return;
         }
 
-        var lookups = await AttributeCodeLookupLoader.LoadAsync(db, results.Select(r => r.Record).ToList(), cancellationToken);
+        var lookups = await AttributeCodeLookupLoader.LoadAsync(db, validEntries, cancellationToken);
 
-        foreach (var (referenceNo, record, stagingRows) in results)
+        foreach (var (header, detailLines, stagingRow) in results)
         {
             try
             {
-                await UpsertShipmentAsync(db, customerCode, record, lookups, cancellationToken);
-                MarkPendingRows(stagingRows, ShipmentFeedStagingStatus.Processed, null);
+                var raw = ShipmentFeedCombiner.Combine(header, detailLines);
+                await UpsertShipmentAsync(db, customerCode, raw, lookups, cancellationToken);
+
+                // A detail call that itself failed already left this row Failed, with the real
+                // reason recorded - the header (attribute codes, invoice fields) still landed via
+                // the branch above, just with zero transfers this tick, so that Failed status
+                // and its ErrorMessage are left alone rather than being overwritten to Processed.
+                if (stagingRow.Status == ShipmentFeedStagingStatus.Pending)
+                {
+                    stagingRow.Status = ShipmentFeedStagingStatus.Processed;
+                    stagingRow.ProcessedAt = clock.UtcNow;
+                }
             }
             catch (Exception exception) when (exception is not OperationCanceledException)
             {
-                MarkPendingRows(stagingRows, ShipmentFeedStagingStatus.Failed, exception.Message);
+                stagingRow.Status = ShipmentFeedStagingStatus.Failed;
+                stagingRow.ProcessedAt = clock.UtcNow;
+                stagingRow.ErrorMessage = exception.Message;
                 logger.LogWarning(exception,
                     "Shipment feed: failed to process reference '{ReferenceNo}' ({CustomerCode}).",
-                    referenceNo, customerCode);
+                    header.ExportNumber, customerCode);
             }
         }
 
@@ -133,67 +131,49 @@ public sealed class ShipmentFeedRunner(
     }
 
     /// <summary>
-    /// Fetches one detail endpoint for one reference and stages its raw response immediately,
-    /// regardless of what happens afterward. A call that throws is staged as Failed right away
-    /// (there is no successful response to combine); a call that succeeds - including a null
-    /// "no data for this endpoint" result - is staged as Pending, to be marked Processed/Failed
-    /// once this shipment's overall standardize-and-upsert outcome is known.
+    /// Fetches one shipment's detail lines and stages the raw response immediately, regardless of
+    /// what happens afterward. A call that throws is staged as Failed right away, with an empty
+    /// line list - the shipment's header still gets processed from the list entry alone (see
+    /// RunForCountryAsync), just with zero transfers until a later poll succeeds.
     /// </summary>
-    private async Task<T?> FetchDetailAsync<T>(
-        List<LtsShipmentFeedStagingRecord> stagingRows, string customerCode, string? countryCode, string referenceNo,
-        string endpointKind, Func<Task<T?>> fetch) where T : class
+    private async Task<(IReadOnlyList<InvoiceDetailLineDto> DetailLines, LtsShipmentFeedStagingRecord StagingRow)> FetchDetailAsync(
+        string customerCode, string? countryCode, InvoiceListEntryDto entry, CancellationToken cancellationToken)
     {
         var fetchedAt = clock.UtcNow;
 
         try
         {
-            var result = await fetch();
+            var detailLines = await client.FetchInvoiceDetailAsync(entry.InvoiceNumber, cancellationToken);
 
-            stagingRows.Add(new LtsShipmentFeedStagingRecord
+            return (detailLines, new LtsShipmentFeedStagingRecord
             {
                 CustomerCode = customerCode,
                 CountryCode = countryCode,
-                EndpointKind = endpointKind,
+                EndpointKind = ShipmentFeedEndpointKinds.Detail,
                 FetchedAt = fetchedAt,
-                ReferenceNo = referenceNo,
-                RawPayload = JsonSerializer.Serialize(result),
+                ReferenceNo = entry.ExportNumber,
+                RawPayload = JsonSerializer.Serialize(detailLines),
                 Status = ShipmentFeedStagingStatus.Pending
             });
-
-            return result;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            stagingRows.Add(new LtsShipmentFeedStagingRecord
+            logger.LogWarning(exception,
+                "Shipment feed: detail call failed for invoice '{InvoiceNumber}' ({CustomerCode}).",
+                entry.InvoiceNumber, customerCode);
+
+            return ([], new LtsShipmentFeedStagingRecord
             {
                 CustomerCode = customerCode,
                 CountryCode = countryCode,
-                EndpointKind = endpointKind,
+                EndpointKind = ShipmentFeedEndpointKinds.Detail,
                 FetchedAt = fetchedAt,
-                ReferenceNo = referenceNo,
-                RawPayload = "null",
+                ReferenceNo = entry.ExportNumber,
+                RawPayload = "[]",
                 Status = ShipmentFeedStagingStatus.Failed,
                 ProcessedAt = fetchedAt,
                 ErrorMessage = exception.Message
             });
-
-            logger.LogWarning(exception,
-                "Shipment feed: {EndpointKind} call failed for reference '{ReferenceNo}' ({CustomerCode}).",
-                endpointKind, referenceNo, customerCode);
-
-            return null;
-        }
-    }
-
-    private void MarkPendingRows(IEnumerable<LtsShipmentFeedStagingRecord> rows, ShipmentFeedStagingStatus status, string? error)
-    {
-        var now = clock.UtcNow;
-
-        foreach (var row in rows.Where(r => r.Status == ShipmentFeedStagingStatus.Pending))
-        {
-            row.Status = status;
-            row.ProcessedAt = now;
-            row.ErrorMessage = error;
         }
     }
 
@@ -210,10 +190,12 @@ public sealed class ShipmentFeedRunner(
         }
 
         var shipment = await db.Shipments.FirstOrDefaultAsync(s => s.ReferenceNo == fields.ReferenceNo, cancellationToken);
+        TrackingStatus seedStatus;
 
         if (shipment is null)
         {
-            var (currentStatus, performance) = ShipmentFeedDefaults.ForNewShipment();
+            var (status, currentStatus, performance) = ShipmentFeedDefaults.ForNewShipment();
+            seedStatus = status;
 
             shipment = new LtsIntegrationShipment
             {
@@ -227,6 +209,16 @@ public sealed class ShipmentFeedRunner(
             };
 
             db.Shipments.Add(shipment);
+        }
+        else
+        {
+            // Never read CurrentStatus back as a milestone floor - it may already hold an
+            // aggregated (transfer-driven) value. Derive fresh from LTS_ShipmentDates instead,
+            // the same rule ShipmentStatusAggregator.MilestoneStatus documents and enforces
+            // everywhere else a seed status is needed.
+            var shipmentDate = await db.ShipmentDates.AsNoTracking()
+                .FirstOrDefaultAsync(d => d.ReferenceNo == fields.ReferenceNo, cancellationToken);
+            seedStatus = ShipmentStatusAggregator.MilestoneStatus(shipmentDate);
         }
 
         // CurrentStatus/Performance are NOT touched here on an existing row: a later module
@@ -245,5 +237,59 @@ public sealed class ShipmentFeedRunner(
         shipment.TotalTransfers = fields.TotalTransfers;
         shipment.TotalBoxes = fields.TotalBoxes;
         shipment.TotalItems = fields.TotalItems;
+
+        foreach (var transferFields in fields.Transfers)
+        {
+            await UpsertTransferAsync(db, fields.ReferenceNo, transferFields, seedStatus, cancellationToken);
+        }
+    }
+
+    private static async Task UpsertTransferAsync(
+        LtsIntegrationDbContext db, string referenceNo, StandardizedTransferFields fields,
+        TrackingStatus seedStatus, CancellationToken cancellationToken)
+    {
+        var transfer = await db.ShipmentTransfers.FirstOrDefaultAsync(
+            t => t.ReferenceNo == referenceNo && t.TransferNo == fields.TransferNo, cancellationToken);
+
+        if (transfer is null)
+        {
+            var (currentStatus, performance) = ShipmentFeedDefaults.ForNewTransfer(seedStatus);
+
+            transfer = new LtsIntegrationShipmentTransfer
+            {
+                ReferenceNo = referenceNo,
+                TransferNo = fields.TransferNo,
+                CurrentStatus = currentStatus,
+                Performance = performance
+            };
+
+            db.ShipmentTransfers.Add(transfer);
+        }
+
+        // Same insert-only rule as the shipment: CurrentStatus/Performance are never touched on
+        // a re-fetch here, so real milestone dates entered since are never regressed.
+        transfer.ReceivingStoreCode = fields.ReceivingStoreCode;
+        transfer.TotalBoxes = fields.TotalBoxes;
+        transfer.TotalItems = fields.TotalItems;
+
+        foreach (var boxFields in fields.Boxes)
+        {
+            var box = await db.Boxes.FirstOrDefaultAsync(
+                b => b.TransferNo == fields.TransferNo && b.PackageNo == boxFields.PackageNo, cancellationToken);
+
+            if (box is null)
+            {
+                // Only that the box exists is established here - PreAcceptanceDate/AcceptanceDate
+                // are a later module's concern (real store-scan data), same as transfer milestone
+                // dates. LTS_Boxes.Status isn't read by any tracking logic (ShipmentStatusAggregator
+                // only reads the two date columns off a box), so this default is cosmetic only.
+                db.Boxes.Add(new LtsIntegrationBox
+                {
+                    TransferNo = fields.TransferNo,
+                    PackageNo = boxFields.PackageNo,
+                    Status = TrackingStatus.Created.ToDisplay()
+                });
+            }
+        }
     }
 }

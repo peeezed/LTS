@@ -1,4 +1,3 @@
-using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -10,34 +9,28 @@ using Microsoft.Extensions.Options;
 
 namespace LTS.Infrastructure.ShipmentFeed;
 
-/// <summary>Fetches shipment data from the company's own internal shipments API.</summary>
+/// <summary>Fetches shipment data from the company's own internal 1C-based shipments API.</summary>
 public interface IShipmentFeedClient
 {
-    /// <summary>Lists shipment references visible for one country. Empty (not null) when there's nothing new.</summary>
-    Task<IReadOnlyList<ShipmentReferenceDto>> FetchShipmentReferencesAsync(
+    /// <summary>GetInvoiceListByCustomerCode - every shipment header + attribute codes for one country.</summary>
+    Task<IReadOnlyList<InvoiceListEntryDto>> FetchInvoiceListAsync(
         string customerCode, CancellationToken cancellationToken = default);
 
-    /// <summary>TBD endpoint owning core header fields. Null when the source has nothing for this reference.</summary>
-    Task<ShipmentHeaderDetailDto?> FetchShipmentHeaderAsync(
-        string referenceNo, CancellationToken cancellationToken = default);
-
-    /// <summary>TBD endpoint owning the six shipment attribute codes.</summary>
-    Task<ShipmentAttributesDetailDto?> FetchShipmentAttributesAsync(
-        string referenceNo, CancellationToken cancellationToken = default);
-
-    /// <summary>TBD endpoint owning box/item/transfer counts.</summary>
-    Task<ShipmentCountsDetailDto?> FetchShipmentCountsAsync(
-        string referenceNo, CancellationToken cancellationToken = default);
+    /// <summary>GetInvoiceDetailByInvoiceNumber - box/product/store lines for one shipment.</summary>
+    Task<IReadOnlyList<InvoiceDetailLineDto>> FetchInvoiceDetailAsync(
+        string invoiceNumber, CancellationToken cancellationToken = default);
 }
 
 /// <summary>
 /// Mirrors the old (dead) HttpJsonAdapter's HTTP/auth handling (base address from config, bearer
-/// token from Integration:Secrets:{SecretName}, 404 treated as "no data", case-insensitive JSON)
-/// as a standalone class - there's only one feed here, so no adapter-registry indirection.
+/// token from Integration:Secrets:{SecretName}, case-insensitive JSON) as a standalone class -
+/// there's only one feed here, so no adapter-registry indirection. Both endpoints wrap their
+/// payload in { IsSuccess, Value, Message }; IsSuccess = false throws with Message so the
+/// runner's per-shipment try/catch can log it and move on.
 ///
-/// TBD: the relative paths/query parameters below, and whether it's really 3 or 4 detail calls,
-/// are placeholders until the real endpoint contract is supplied - isolated to this one class so
-/// nothing else in the pipeline needs to change when they are.
+/// TBD: the exact query-string parameter names below (customerCode/invoiceNumber) - the shared
+/// spec gave response shapes, not the full request signature. Confirm against the real
+/// API/Swagger; nothing else in the pipeline needs to change if these turn out different.
 /// </summary>
 public sealed class ShipmentFeedClient(
     IHttpClientFactory httpClientFactory,
@@ -49,31 +42,19 @@ public sealed class ShipmentFeedClient(
 
     private static readonly JsonSerializerOptions SerializerOptions = new() { PropertyNameCaseInsensitive = true };
 
-    public Task<IReadOnlyList<ShipmentReferenceDto>> FetchShipmentReferencesAsync(
+    public Task<IReadOnlyList<InvoiceListEntryDto>> FetchInvoiceListAsync(
         string customerCode, CancellationToken cancellationToken = default) =>
-        GetListAsync<ShipmentReferenceDto>(
-            $"shipments?customerCode={Uri.EscapeDataString(customerCode)}", cancellationToken);
+        GetAsync<InvoiceListEntryDto>(
+            $"InvoiceListClass/GetInvoiceListByCustomerCode?customerCode={Uri.EscapeDataString(customerCode)}",
+            cancellationToken);
 
-    public Task<ShipmentHeaderDetailDto?> FetchShipmentHeaderAsync(
-        string referenceNo, CancellationToken cancellationToken = default) =>
-        GetAsync<ShipmentHeaderDetailDto>($"shipments/{Uri.EscapeDataString(referenceNo)}/header", cancellationToken);
+    public Task<IReadOnlyList<InvoiceDetailLineDto>> FetchInvoiceDetailAsync(
+        string invoiceNumber, CancellationToken cancellationToken = default) =>
+        GetAsync<InvoiceDetailLineDto>(
+            $"InvoiceDetail/GetInvoiceDetailByInvoiceNumber?invoiceNumber={Uri.EscapeDataString(invoiceNumber)}",
+            cancellationToken);
 
-    public Task<ShipmentAttributesDetailDto?> FetchShipmentAttributesAsync(
-        string referenceNo, CancellationToken cancellationToken = default) =>
-        GetAsync<ShipmentAttributesDetailDto>(
-            $"shipments/{Uri.EscapeDataString(referenceNo)}/attributes", cancellationToken);
-
-    public Task<ShipmentCountsDetailDto?> FetchShipmentCountsAsync(
-        string referenceNo, CancellationToken cancellationToken = default) =>
-        GetAsync<ShipmentCountsDetailDto>($"shipments/{Uri.EscapeDataString(referenceNo)}/counts", cancellationToken);
-
-    private async Task<IReadOnlyList<T>> GetListAsync<T>(string relativePath, CancellationToken cancellationToken)
-    {
-        var result = await GetAsync<List<T>>(relativePath, cancellationToken);
-        return result ?? [];
-    }
-
-    private async Task<T?> GetAsync<T>(string relativePath, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<T>> GetAsync<T>(string relativePath, CancellationToken cancellationToken)
     {
         var settings = options.Value.ShipmentFeed;
 
@@ -100,15 +81,21 @@ public sealed class ShipmentFeedClient(
         }
 
         using var response = await client.GetAsync(relativePath, cancellationToken);
-
-        if (response.StatusCode == HttpStatusCode.NotFound)
-        {
-            logger.LogDebug("Shipment feed got 404 from {Path}; treating it as no data.", relativePath);
-            return default;
-        }
-
         response.EnsureSuccessStatusCode();
 
-        return await response.Content.ReadFromJsonAsync<T>(SerializerOptions, cancellationToken);
+        var envelope = await response.Content.ReadFromJsonAsync<ApiEnvelope<List<T>>>(SerializerOptions, cancellationToken);
+
+        if (envelope is null)
+        {
+            logger.LogWarning("Shipment feed got an empty response from {Path}.", relativePath);
+            return [];
+        }
+
+        if (!envelope.IsSuccess)
+        {
+            throw new InvalidOperationException($"Shipment feed call to {relativePath} failed: {envelope.Message}");
+        }
+
+        return envelope.Value ?? [];
     }
 }

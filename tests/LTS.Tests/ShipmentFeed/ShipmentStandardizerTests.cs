@@ -14,28 +14,32 @@ public class ShipmentStandardizerTests
         LogisticsCompany: new Dictionary<string, string> { ["C001"] = "AGS" },
         Broker: new Dictionary<string, string> { ["BC001"] = "KLG" });
 
-    private static RawShipmentFeedDto Raw(
-        string referenceNo = "26GE001",
-        string? arrivalCustoms = "AC001",
+    private static InvoiceListEntryDto Header(
+        string exportNumber = "26GE001",
         string? exportType = "ET003",
-        string? transportType = "TP001",
-        string? loadingPoint = "LP001",
-        string? logisticsCompany = "C001",
-        string? brokerCompany = "BC001") => new()
-    {
-        ReferenceNo = referenceNo,
-        InvoiceNo = "INV-001",
-        InvoiceDate = new DateOnly(2026, 8, 1),
-        ArrivalCustoms = arrivalCustoms,
-        ExportType = exportType,
-        TransportType = transportType,
-        LoadingPoint = loadingPoint,
-        LogisticsCompany = logisticsCompany,
-        BrokerCompany = brokerCompany,
-        TotalTransfers = 2,
-        TotalBoxes = 10,
-        TotalItems = 100
-    };
+        string? exportTypeDesc = "Source Export Text") => new(
+        InvoiceNumber: "INV-001",
+        InvoiceDate: new DateTimeOffset(2026, 8, 1, 0, 0, 0, TimeSpan.Zero),
+        ExportNumber: exportNumber,
+        ERPTransferWarehouseCode: null,
+        ERPTransferWarehouseDescription: null,
+        Arrival_Customs: "AC001",
+        Arrival_Customs_Desc: "Source Moscow Text",
+        Export_Type: exportType,
+        Export_Type_Desc: exportTypeDesc,
+        Transport: "TP001",
+        Transport_Desc: "Source Truck Text",
+        Loading_Point: "LP001",
+        Loading_Point_Desc: "Source Turkey Text",
+        Carier: "C001",
+        Carier_Desc: "Source AGS Text",
+        Broker_Company: "BC001",
+        Broker_Company_Desc: "Source KLG Text",
+        Status: 0,
+        eInvoiceNumber: null);
+
+    private static RawShipmentFeedDto Raw(InvoiceListEntryDto? header = null, IReadOnlyList<InvoiceDetailLineDto>? lines = null) =>
+        new(header ?? Header(), lines ?? []);
 
     [Fact]
     public void Known_codes_resolve_to_their_description()
@@ -52,44 +56,52 @@ public class ShipmentStandardizerTests
     }
 
     [Fact]
-    public void Unknown_code_falls_back_to_the_raw_code_with_one_warning()
+    public void Unknown_code_falls_back_to_the_sources_own_description_with_one_warning()
     {
-        var fields = ShipmentStandardizer.Standardize(Raw(exportType: "ET999"), Lookups());
+        var fields = ShipmentStandardizer.Standardize(Raw(Header(exportType: "ET999", exportTypeDesc: "Source Text")), Lookups());
+
+        fields.ExportType.Should().Be("Source Text");
+        fields.Warnings.Should().ContainSingle(w => w.Contains("ET999"));
+    }
+
+    [Fact]
+    public void Unknown_code_with_no_source_description_falls_back_to_the_raw_code()
+    {
+        var fields = ShipmentStandardizer.Standardize(Raw(Header(exportType: "ET999", exportTypeDesc: null)), Lookups());
 
         fields.ExportType.Should().Be("ET999");
-        fields.Warnings.Should().ContainSingle(w => w.Contains("ET999"));
     }
 
     [Fact]
     public void Blank_code_maps_to_null_with_no_warning()
     {
-        var fields = ShipmentStandardizer.Standardize(Raw(exportType: null), Lookups());
+        var fields = ShipmentStandardizer.Standardize(Raw(Header(exportType: null)), Lookups());
 
         fields.ExportType.Should().BeNull();
         fields.Warnings.Should().BeEmpty();
     }
 
     [Fact]
-    public void Invoice_and_count_fields_pass_through_unchanged()
+    public void Blank_export_number_throws()
     {
-        var fields = ShipmentStandardizer.Standardize(Raw(), Lookups());
+        var act = () => ShipmentStandardizer.Standardize(Raw(Header(exportNumber: "")), Lookups());
 
-        fields.ReferenceNo.Should().Be("26GE001");
-        fields.InvoiceNo.Should().Be("INV-001");
-        fields.InvoiceDate.Should().Be(new DateOnly(2026, 8, 1));
-        fields.TotalTransfers.Should().Be(2);
-        fields.TotalBoxes.Should().Be(10);
-        fields.TotalItems.Should().Be(100);
+        act.Should().Throw<InvalidOperationException>();
     }
 
     [Fact]
-    public void Blank_reference_no_throws()
+    public void Detail_lines_are_grouped_into_transfers_and_summed_into_shipment_totals()
     {
-        var raw = Raw(referenceNo: "") with { ReferenceNo = null };
+        InvoiceDetailLineDto Line(string package, string store, decimal qty) => new(
+            "INV-001", DateTimeOffset.UtcNow, null, package, "OPT1", "BAR1", "M", qty, 10m, store, "EUR", "26GE001", null, null);
 
-        var act = () => ShipmentStandardizer.Standardize(raw, Lookups());
+        var lines = new[] { Line("PKG1", "ST01", 3), Line("PKG2", "ST01", 5), Line("PKG3", "ST02", 7) };
 
-        act.Should().Throw<InvalidOperationException>();
+        var fields = ShipmentStandardizer.Standardize(Raw(lines: lines), Lookups());
+
+        fields.TotalTransfers.Should().Be(2);
+        fields.TotalBoxes.Should().Be(3);
+        fields.TotalItems.Should().Be(15);
     }
 }
 
@@ -98,9 +110,19 @@ public class ShipmentFeedDefaultsTests
     [Fact]
     public void New_shipment_defaults_match_the_shared_status_display_convention()
     {
-        var (status, performance) = ShipmentFeedDefaults.ForNewShipment();
+        var (status, currentStatus, performance) = ShipmentFeedDefaults.ForNewShipment();
 
-        status.Should().Be(TrackingStatus.Created.ToDisplay());
+        status.Should().Be(TrackingStatus.Created);
+        currentStatus.Should().Be(TrackingStatus.Created.ToDisplay());
+        performance.Should().Be(PerformanceStatus.NotStarted.ToDisplay());
+    }
+
+    [Fact]
+    public void New_transfer_inherits_the_shipments_seed_status()
+    {
+        var (currentStatus, performance) = ShipmentFeedDefaults.ForNewTransfer(TrackingStatus.AtCrossdock);
+
+        currentStatus.Should().Be(TrackingStatus.AtCrossdock.ToDisplay());
         performance.Should().Be(PerformanceStatus.NotStarted.ToDisplay());
     }
 }

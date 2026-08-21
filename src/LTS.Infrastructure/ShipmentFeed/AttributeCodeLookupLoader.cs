@@ -13,14 +13,16 @@ namespace LTS.Infrastructure.ShipmentFeed;
 internal static class AttributeCodeLookupLoader
 {
     public static async Task<AttributeCodeLookups> LoadAsync(
-        LtsIntegrationDbContext db, IReadOnlyList<RawShipmentFeedDto> records, CancellationToken cancellationToken) =>
+        LtsIntegrationDbContext db, IReadOnlyList<InvoiceListEntryDto> entries, CancellationToken cancellationToken) =>
         new(
-            await ResolveAsync(db.ArrivalCustomsAttributes, records.Select(r => r.ArrivalCustoms), cancellationToken),
-            await ResolveAsync(db.ExportTypeAttributes, records.Select(r => r.ExportType), cancellationToken),
-            await ResolveAsync(db.TransportTypeAttributes, records.Select(r => r.TransportType), cancellationToken),
-            await ResolveAsync(db.LoadingPointAttributes, records.Select(r => r.LoadingPoint), cancellationToken),
-            await ResolveAsync(db.LogisticsCompanyAttributes, records.Select(r => r.LogisticsCompany), cancellationToken),
-            await ResolveAsync(db.BrokerAttributes, records.Select(r => r.BrokerCompany), cancellationToken));
+            await ResolveAsync(db.ArrivalCustomsAttributes, entries.Select(e => e.Arrival_Customs), cancellationToken),
+            await ResolveAsync(db.ExportTypeAttributes, entries.Select(e => e.Export_Type), cancellationToken),
+            await ResolveAsync(db.TransportTypeAttributes, entries.Select(e => e.Transport), cancellationToken),
+            await ResolveAsync(db.LoadingPointAttributes, entries.Select(e => e.Loading_Point), cancellationToken),
+            // Carier maps onto the Logistics Company lookup table, Broker_Company onto Broker -
+            // same tables the Admin UI and filter dropdowns already resolve against.
+            await ResolveAsync(db.LogisticsCompanyAttributes, entries.Select(e => e.Carier), cancellationToken),
+            await ResolveAsync(db.BrokerAttributes, entries.Select(e => e.Broker_Company), cancellationToken));
 
     private static async Task<Dictionary<string, string>> ResolveAsync(
         IQueryable<LtsIntegrationAttribute> table, IEnumerable<string?> rawCodes, CancellationToken cancellationToken)
