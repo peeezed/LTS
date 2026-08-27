@@ -48,10 +48,12 @@ else
             <PropertyColumn Property="x => x.TotalItems" Title="Total Items" />
 
             @* Always rendered, visibility toggled via Hidden - see the comment in Shipments.razor. *@
-            <TemplateColumn Title="KPICrossdockDepartureDate (days)" Sortable="false" Hidden="@(!_showKpi)">
+            <TemplateColumn Title="KPI Crossdock Departure" Sortable="false" Hidden="@(!_showKpi)"
+                             HeaderStyle="@KpiHeaderStyle" CellStyle="@KpiCellStyle">
                 <CellTemplate>@KpiDaysText(context.Item.ShipmentCrossdockArrivalDate, context.Item.KPICrossdockDepartureDate)</CellTemplate>
             </TemplateColumn>
-            <TemplateColumn Title="KPICrossdockDepartureDate" Sortable="false" Hidden="@(!_showKpi)">
+            <TemplateColumn Title="KPI Crossdock Departure Date" Sortable="false" Hidden="@(!_showKpi)"
+                             HeaderStyle="@KpiHeaderStyle" CellStyle="@KpiCellStyle">
                 <CellTemplate>@KpiDateText(context.Item.KPICrossdockDepartureDate)</CellTemplate>
             </TemplateColumn>
             <PropertyColumn Property="x => x.CrossdockDepartureDate" Title="Crossdock Departure" Format="yyyy-MM-dd" />
@@ -87,6 +89,13 @@ else
 
     /// <summary>Resets on every visit - no persisted preference exists yet for this.</summary>
     private bool _showKpi;
+
+    // Tinted and smaller than the regular columns, so KPI columns read as auxiliary to the actual
+    // milestone dates rather than equal citizens - rgba/CSS variables rather than a fixed hex so
+    // this still reads correctly in both light and dark themes.
+    private const string KpiHeaderStyle = "font-size: 0.7rem; background-color: rgba(33, 150, 243, 0.14);";
+    private const string KpiCellStyle =
+        "font-size: 0.75rem; background-color: rgba(33, 150, 243, 0.06); color: var(--mud-palette-text-secondary);";
 
     private static string KpiDaysText(DateOnly? start, DateOnly? deadline) =>
         IntegrationKpiDisplay.DaysBetween(start, deadline) is { } days ? $"{days}d" : "—";
