@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <ItemGroup>
     <ProjectReference Include="..\LTS.Infrastructure\LTS.Infrastructure.csproj" />
@@ -25,6 +25,7 @@
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>41c93cc6-8dd3-4af6-8cd2-f14cd0a9aab9</UserSecretsId>
   </PropertyGroup>
 
 </Project>
