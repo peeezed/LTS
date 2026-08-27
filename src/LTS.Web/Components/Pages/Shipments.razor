@@ -62,58 +62,49 @@ else
             <PropertyColumn Property="x => x.LogisticsCompany" Title="Logistics Company" />
             <PropertyColumn Property="x => x.Broker" Title="Broker" />
 
-            @* Milestone dates, in lifecycle order, each optionally preceded by its KPI target/deadline pair. *@
+            @*
+                Milestone dates, in lifecycle order, each preceded by its KPI target/deadline pair -
+                always rendered (never @if'd in/out - MudDataGrid re-appends a column at the end of
+                the grid if it's added back after being removed, so toggling visibility has to use
+                each column's own Hidden property instead of conditionally rendering the column itself).
+                Column titles match the LTS_ShipmentDates/LTS_ShipmentTransferDates column names.
+            *@
             <PropertyColumn Property="x => x.LoadingDate" Title="Loading" Format="yyyy-MM-dd" />
-            @if (_showKpi)
-            {
-                <TemplateColumn Title="KPI (days)" Sortable="false">
-                    <CellTemplate>@KpiDaysText(context.Item.LoadingDate, context.Item.KPICustomsClearanceDate)</CellTemplate>
-                </TemplateColumn>
-                <TemplateColumn Title="KPI Calculated Date" Sortable="false">
-                    <CellTemplate>@KpiDateText(context.Item.KPICustomsClearanceDate)</CellTemplate>
-                </TemplateColumn>
-            }
+            <TemplateColumn Title="KPICustomsClearanceDate (days)" Sortable="false" Hidden="@(!_showKpi)">
+                <CellTemplate>@KpiDaysText(context.Item.LoadingDate, context.Item.KPICustomsClearanceDate)</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn Title="KPICustomsClearanceDate" Sortable="false" Hidden="@(!_showKpi)">
+                <CellTemplate>@KpiDateText(context.Item.KPICustomsClearanceDate)</CellTemplate>
+            </TemplateColumn>
             <PropertyColumn Property="x => x.DepartureCustomsClearanceDate" Title="Export Clearance" Format="yyyy-MM-dd" />
-            @if (_showKpi)
-            {
-                <TemplateColumn Title="KPI (days)" Sortable="false">
-                    <CellTemplate>@KpiDaysText(context.Item.DepartureCustomsClearanceDate, context.Item.KPIDepartureDate)</CellTemplate>
-                </TemplateColumn>
-                <TemplateColumn Title="KPI Calculated Date" Sortable="false">
-                    <CellTemplate>@KpiDateText(context.Item.KPIDepartureDate)</CellTemplate>
-                </TemplateColumn>
-            }
+            <TemplateColumn Title="KPIDepartureDate (days)" Sortable="false" Hidden="@(!_showKpi)">
+                <CellTemplate>@KpiDaysText(context.Item.DepartureCustomsClearanceDate, context.Item.KPIDepartureDate)</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn Title="KPIDepartureDate" Sortable="false" Hidden="@(!_showKpi)">
+                <CellTemplate>@KpiDateText(context.Item.KPIDepartureDate)</CellTemplate>
+            </TemplateColumn>
             <PropertyColumn Property="x => x.DepartureDate" Title="Departure" Format="yyyy-MM-dd" />
-            @if (_showKpi)
-            {
-                <TemplateColumn Title="KPI (days)" Sortable="false">
-                    <CellTemplate>@KpiDaysText(context.Item.DepartureDate, context.Item.KPIArrivalToDestinationDate)</CellTemplate>
-                </TemplateColumn>
-                <TemplateColumn Title="KPI Calculated Date" Sortable="false">
-                    <CellTemplate>@KpiDateText(context.Item.KPIArrivalToDestinationDate)</CellTemplate>
-                </TemplateColumn>
-            }
+            <TemplateColumn Title="KPIArrivalToDestinationDate (days)" Sortable="false" Hidden="@(!_showKpi)">
+                <CellTemplate>@KpiDaysText(context.Item.DepartureDate, context.Item.KPIArrivalToDestinationDate)</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn Title="KPIArrivalToDestinationDate" Sortable="false" Hidden="@(!_showKpi)">
+                <CellTemplate>@KpiDateText(context.Item.KPIArrivalToDestinationDate)</CellTemplate>
+            </TemplateColumn>
             <PropertyColumn Property="x => x.ArrivalToTargetCountryDate" Title="Arrival To Country" Format="yyyy-MM-dd" />
             <PropertyColumn Property="x => x.CustomsStartDate" Title="Customs Start" Format="yyyy-MM-dd" />
-            @if (_showKpi)
-            {
-                <TemplateColumn Title="KPI (days)" Sortable="false">
-                    <CellTemplate>@KpiDaysText(context.Item.CustomsStartDate, context.Item.KPIArrivalCustomsEndDate)</CellTemplate>
-                </TemplateColumn>
-                <TemplateColumn Title="KPI Calculated Date" Sortable="false">
-                    <CellTemplate>@KpiDateText(context.Item.KPIArrivalCustomsEndDate)</CellTemplate>
-                </TemplateColumn>
-            }
+            <TemplateColumn Title="KPIArrivalCustomsEndDate (days)" Sortable="false" Hidden="@(!_showKpi)">
+                <CellTemplate>@KpiDaysText(context.Item.CustomsStartDate, context.Item.KPIArrivalCustomsEndDate)</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn Title="KPIArrivalCustomsEndDate" Sortable="false" Hidden="@(!_showKpi)">
+                <CellTemplate>@KpiDateText(context.Item.KPIArrivalCustomsEndDate)</CellTemplate>
+            </TemplateColumn>
             <PropertyColumn Property="x => x.CustomsEndDate" Title="Customs End" Format="yyyy-MM-dd" />
-            @if (_showKpi)
-            {
-                <TemplateColumn Title="KPI (days)" Sortable="false">
-                    <CellTemplate>@KpiDaysText(context.Item.CustomsEndDate, context.Item.KPILeadTimeToXdock)</CellTemplate>
-                </TemplateColumn>
-                <TemplateColumn Title="KPI Calculated Date" Sortable="false">
-                    <CellTemplate>@KpiDateText(context.Item.KPILeadTimeToXdock)</CellTemplate>
-                </TemplateColumn>
-            }
+            <TemplateColumn Title="KPILeadTimeToXdock (days)" Sortable="false" Hidden="@(!_showKpi)">
+                <CellTemplate>@KpiDaysText(context.Item.CustomsEndDate, context.Item.KPILeadTimeToXdock)</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn Title="KPILeadTimeToXdock" Sortable="false" Hidden="@(!_showKpi)">
+                <CellTemplate>@KpiDateText(context.Item.KPILeadTimeToXdock)</CellTemplate>
+            </TemplateColumn>
             <PropertyColumn Property="x => x.CrossdockArrivalDate" Title="Crossdock Arrival" Format="yyyy-MM-dd" />
 
             <PropertyColumn Property="x => x.TransferCount" Title="Transfers" />

@@ -47,15 +47,13 @@ else
             <PropertyColumn Property="x => x.TotalBoxes" Title="Total Boxes" />
             <PropertyColumn Property="x => x.TotalItems" Title="Total Items" />
 
-            @if (_showKpi)
-            {
-                <TemplateColumn Title="KPI (days)" Sortable="false">
-                    <CellTemplate>@KpiDaysText(context.Item.ShipmentCrossdockArrivalDate, context.Item.KPICrossdockDepartureDate)</CellTemplate>
-                </TemplateColumn>
-                <TemplateColumn Title="KPI Calculated Date" Sortable="false">
-                    <CellTemplate>@KpiDateText(context.Item.KPICrossdockDepartureDate)</CellTemplate>
-                </TemplateColumn>
-            }
+            @* Always rendered, visibility toggled via Hidden - see the comment in Shipments.razor. *@
+            <TemplateColumn Title="KPICrossdockDepartureDate (days)" Sortable="false" Hidden="@(!_showKpi)">
+                <CellTemplate>@KpiDaysText(context.Item.ShipmentCrossdockArrivalDate, context.Item.KPICrossdockDepartureDate)</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn Title="KPICrossdockDepartureDate" Sortable="false" Hidden="@(!_showKpi)">
+                <CellTemplate>@KpiDateText(context.Item.KPICrossdockDepartureDate)</CellTemplate>
+            </TemplateColumn>
             <PropertyColumn Property="x => x.CrossdockDepartureDate" Title="Crossdock Departure" Format="yyyy-MM-dd" />
             <PropertyColumn Property="x => x.PlannedStoreArrivalDate" Title="Planned Store Arrival" Format="yyyy-MM-dd" />
             <PropertyColumn Property="x => x.StoreArrivalDate" Title="Store Arrival" Format="yyyy-MM-dd" />
