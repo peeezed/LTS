@@ -47,3 +47,20 @@ public interface IAuditQueryService
         GridRequest request,
         CancellationToken cancellationToken = default);
 }
+
+/// <summary>
+/// The Audit Log page's reader, sourced from LTS_Integration - a separate interface from
+/// <see cref="IAuditQueryService"/> rather than another implementation of it, for the same reason
+/// <see cref="IIntegrationMilestoneService"/> is separate from <see cref="IMilestoneService"/>:
+/// the old one still serves the old database's own (now unreachable) audit trail. Reuses
+/// <see cref="AuditRow"/>/<see cref="AuditFilter"/> as-is - they carry no old-database-specific shape.
+/// </summary>
+public interface IIntegrationAuditQueryService
+{
+    Task<PagedResult<AuditRow>> GetAuditAsync(
+        int countryId,
+        UserPermissions permissions,
+        AuditFilter filter,
+        GridRequest request,
+        CancellationToken cancellationToken = default);
+}

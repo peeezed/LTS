@@ -35,6 +35,7 @@ public class LtsIntegrationDbContext(DbContextOptions<LtsIntegrationDbContext> o
     public DbSet<LtsIntegrationKpiTarget> KpiTargets => Set<LtsIntegrationKpiTarget>();
     public DbSet<LtsShipmentFeedStagingRecord> ShipmentFeedStaging => Set<LtsShipmentFeedStagingRecord>();
     public DbSet<LtsIntegrationDelayAlertConfig> DelayAlertConfigs => Set<LtsIntegrationDelayAlertConfig>();
+    public DbSet<LtsIntegrationMilestoneAudit> MilestoneAudits => Set<LtsIntegrationMilestoneAudit>();
 
     // The seven shipment attribute lookup tables all share the same Code+Description shape, so
     // one shared-type entity (LtsIntegrationAttribute) is mapped onto each rather than declaring
@@ -195,6 +196,15 @@ public class LtsIntegrationDbContext(DbContextOptions<LtsIntegrationDbContext> o
             entity.HasKey(c => c.Id);
             entity.Property(c => c.Id).HasColumnName("ID");
             entity.Property(c => c.MailKind).HasConversion<string>().HasMaxLength(20);
+        });
+
+        builder.Entity<LtsIntegrationMilestoneAudit>(entity =>
+        {
+            entity.ToTable("LTS_MilestoneAudit");
+            entity.HasKey(a => a.Id);
+            entity.Property(a => a.Id).HasColumnName("ID");
+            entity.Property(a => a.MilestoneType).HasConversion<string>().HasMaxLength(50);
+            entity.Property(a => a.Source).HasConversion<string>().HasMaxLength(30);
         });
 
         foreach (var (name, table) in new[]
@@ -416,4 +426,28 @@ public class LtsIntegrationDelayAlertConfig
     public string? Subject { get; set; }
     public string? Body { get; set; }
     public DateOnly? LastSentDate { get; set; }
+}
+
+/// <summary>
+/// One row of LTS_MilestoneAudit: one recorded change to a milestone date, written by
+/// IntegrationMilestoneService.ApplyAsync. Keyed by ReferenceNo/TransferNo directly (natural
+/// keys, matching how every other LTS_Integration table already works) rather than the old
+/// LtsDbContext MilestoneAudit's surrogate Scope+EntityId+ShipmentId columns, which existed only
+/// because that database's Shipments/Transfers were themselves int-keyed. TransferNo is null for
+/// a shipment-scope change - there's no separate Scope column since it's implied by that.
+/// </summary>
+public class LtsIntegrationMilestoneAudit
+{
+    public int Id { get; set; }
+    public required string ReferenceNo { get; set; }
+    public string? TransferNo { get; set; }
+    public required MilestoneType MilestoneType { get; set; }
+    public DateOnly? OldValue { get; set; }
+    public DateOnly? NewValue { get; set; }
+    public required MilestoneSource Source { get; set; }
+    public Guid? UserId { get; set; }
+    public string? UserName { get; set; }
+    public int? PartnerId { get; set; }
+    public DateTime ChangedAt { get; set; }
+    public string? Note { get; set; }
 }

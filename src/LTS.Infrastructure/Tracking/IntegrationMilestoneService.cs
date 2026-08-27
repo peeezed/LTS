@@ -24,11 +24,13 @@ namespace LTS.Infrastructure.Tracking;
 /// IntegrationKpiCalculator - the shipment's still folds in every transfer's XDock leg; a
 /// transfer's own value is the worst of just its own {XDock, Local Transportation} legs.
 ///
-/// Deliberately smaller than the old MilestoneService in one remaining way: no audit trail yet.
-/// Chronology/future-date validation is kept, since it is cheap and independent of KPI.
+/// Every applied change writes an LTS_MilestoneAudit row (old value, new value, source, who),
+/// mirroring the old MilestoneService's audit trail - except there is no ManualOverrideWins
+/// protection here yet, since nothing that currently calls this service ever sets it (no feed
+/// writes milestone dates today, only attributes).
 /// </summary>
 public sealed class IntegrationMilestoneService(
-    IDbContextFactory<LtsIntegrationDbContext> dbFactory, IClock clock) : IIntegrationMilestoneService
+    IDbContextFactory<LtsIntegrationDbContext> dbFactory, IClock clock, ICurrentUser currentUser) : IIntegrationMilestoneService
 {
     private const int FutureToleranceDays = 1;
 
@@ -133,6 +135,7 @@ public sealed class IntegrationMilestoneService(
                     continue;
                 }
 
+                RecordAudit(db, options, shipment.ReferenceNo, null, change.Type, current, change.Date);
                 SetDate(date, change.Type, change.Date);
                 changedThisShipment = true;
                 applied++;
@@ -229,6 +232,7 @@ public sealed class IntegrationMilestoneService(
                     continue;
                 }
 
+                RecordAudit(db, options, shipment.ReferenceNo, transfer.TransferNo, change.Type, current, change.Date);
                 SetTransferDate(transferDate, change.Type, change.Date);
                 changedThisTransfer = true;
                 applied++;
@@ -382,6 +386,29 @@ public sealed class IntegrationMilestoneService(
                 .ToDisplay();
         }
     }
+
+    /// <summary>
+    /// Records one applied change to LTS_MilestoneAudit - added to the same tracked db so it
+    /// saves together with the actual date write in the batch's single SaveChangesAsync call.
+    /// transferNo is null for a shipment-scope change.
+    /// </summary>
+    private void RecordAudit(
+        LtsIntegrationDbContext db, MilestoneApplyOptions options, string referenceNo, string? transferNo,
+        MilestoneType type, DateOnly? oldValue, DateOnly? newValue) =>
+        db.MilestoneAudits.Add(new LtsIntegrationMilestoneAudit
+        {
+            ReferenceNo = referenceNo,
+            TransferNo = transferNo,
+            MilestoneType = type,
+            OldValue = oldValue,
+            NewValue = newValue,
+            Source = options.Source,
+            UserId = currentUser.UserId,
+            UserName = currentUser.UserName,
+            PartnerId = currentUser.PartnerId,
+            ChangedAt = clock.UtcNow,
+            Note = options.Note
+        });
 
     /// <summary>Rejects a date typed for an event that has not occurred, or one out of order.</summary>
     private string? Validate(DateOnly date, MilestoneType type, Func<MilestoneType, DateOnly?> read)

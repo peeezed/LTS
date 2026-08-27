@@ -116,6 +116,7 @@ public static class DependencyInjection
         services.AddScoped<IUserAdminService, UserAdminService>();
         services.AddScoped<IMasterDataService, MasterDataService>();
         services.AddScoped<IAuditQueryService, AuditQueryService>();
+        services.AddScoped<IIntegrationAuditQueryService, IntegrationAuditQueryService>();
 
         // Integration: adapters are registered by key, so onboarding a country adds an adapter
         // here and its configuration rows in the database - nothing else changes.

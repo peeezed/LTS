@@ -5,6 +5,7 @@ using LTS.Application.ShipmentFeed;
 using LTS.Application.Tracking;
 using LTS.Infrastructure.ExportAttributeFeed;
 using LTS.Infrastructure.Persistence;
+using LTS.Infrastructure.Security;
 using LTS.Infrastructure.ShipmentFeed;
 using LTS.Infrastructure.Tracking;
 using Microsoft.EntityFrameworkCore;
@@ -25,6 +26,10 @@ builder.Services.AddScoped<ShipmentFeedRunner>();
 
 // Same reasoning for ExportAttributeFeedRunner.SimulateAsync and IExportAttributeFeedClient.
 builder.Services.AddSingleton<IExportAttributeFeedClient, UnusedExportAttributeFeedClient>();
+// IntegrationMilestoneService now writes an audit row (who made the change) - SystemCurrentUser
+// is the same "no real user, this is a background/system context" default the real app's own
+// DI registers for its background pollers.
+builder.Services.AddScoped<ICurrentUser, SystemCurrentUser>();
 builder.Services.AddScoped<IIntegrationMilestoneService, IntegrationMilestoneService>();
 builder.Services.AddScoped<ExportAttributeFeedRunner>();
 
