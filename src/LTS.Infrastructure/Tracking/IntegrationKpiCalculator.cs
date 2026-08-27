@@ -45,9 +45,9 @@ internal static class IntegrationKpiCalculator
 
         foreach (var definition in IntegrationKpiCatalog.All)
         {
-            if (definition.Step == IntegrationKpiStep.Xdock)
+            if (definition.Step is IntegrationKpiStep.Xdock or IntegrationKpiStep.LocalTransportation)
             {
-                continue; // handled separately below - its deadline lives on the transfer, not here
+                continue; // both handled separately below - their dates live on the transfer, not here
             }
 
             var start = ShipmentStatusAggregator.GetDate(date, definition.From);
@@ -125,7 +125,7 @@ internal static class IntegrationKpiCalculator
         }
 
         var shipmentLegs = IntegrationKpiCatalog.All
-            .Where(d => d.Step != IntegrationKpiStep.Xdock)
+            .Where(d => d.Step is not (IntegrationKpiStep.Xdock or IntegrationKpiStep.LocalTransportation))
             .Select(d => new KpiLegDates(
                 ShipmentStatusAggregator.GetDate(date, d.From),
                 ShipmentStatusAggregator.GetDate(date, d.To),
