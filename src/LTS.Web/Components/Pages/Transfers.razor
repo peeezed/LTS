@@ -56,7 +56,11 @@ else
                              HeaderStyle="@KpiHeaderStyle" CellStyle="@KpiCellStyle">
                 <CellTemplate>@KpiDateText(context.Item.KPICrossdockDepartureDate)</CellTemplate>
             </TemplateColumn>
-            <PropertyColumn Property="x => x.CrossdockDepartureDate" Title="Crossdock Departure" Format="yyyy-MM-dd" />
+            <TemplateColumn Title="Crossdock Departure" SortBy="x => x.CrossdockDepartureDate">
+                <CellTemplate>
+                    <KpiDateCell ActualDate="context.Item.CrossdockDepartureDate" Deadline="context.Item.KPICrossdockDepartureDate" />
+                </CellTemplate>
+            </TemplateColumn>
             <PropertyColumn Property="x => x.PlannedStoreArrivalDate" Title="Planned Store Arrival" Format="yyyy-MM-dd" />
             <PropertyColumn Property="x => x.StoreArrivalDate" Title="Store Arrival" Format="yyyy-MM-dd" />
             <PropertyColumn Property="x => x.StorePreAcceptanceDate" Title="Store Pre Acceptance" Format="yyyy-MM-dd" />

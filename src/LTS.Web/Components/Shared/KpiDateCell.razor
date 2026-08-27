@@ -1,0 +1,24 @@
+@using LTS.Domain.Kpi
+
+@* Renders an actual milestone date, with a small warning icon when it fell past the KPI deadline
+   it was gated by - so a late step is visible right on the date that missed it, not only in the
+   shipment's overall Performance column. *@
+<MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+    <MudText Typo="Typo.body2">@(ActualDate?.ToString("yyyy-MM-dd") ?? "")</MudText>
+    @if (IsLate)
+    {
+        <MudTooltip Text="@($"Past its KPI deadline of {Deadline:yyyy-MM-dd}")">
+            <MudIcon Icon="@Icons.Material.Filled.PriorityHigh" Color="Color.Error" Size="Size.Small" />
+        </MudTooltip>
+    }
+</MudStack>
+
+@code {
+    [Parameter, EditorRequired]
+    public DateOnly? ActualDate { get; set; }
+
+    [Parameter, EditorRequired]
+    public DateOnly? Deadline { get; set; }
+
+    private bool IsLate => IntegrationKpiDisplay.IsLate(ActualDate, Deadline);
+}

@@ -29,6 +29,46 @@ public class IntegrationKpiDisplayTests
 
         days.Should().BeNull();
     }
+
+    [Fact]
+    public void An_actual_date_after_its_deadline_is_late()
+    {
+        var isLate = IntegrationKpiDisplay.IsLate(new DateOnly(2026, 3, 6), new DateOnly(2026, 3, 5));
+
+        isLate.Should().BeTrue();
+    }
+
+    [Fact]
+    public void An_actual_date_on_its_deadline_is_not_late()
+    {
+        var isLate = IntegrationKpiDisplay.IsLate(new DateOnly(2026, 3, 5), new DateOnly(2026, 3, 5));
+
+        isLate.Should().BeFalse();
+    }
+
+    [Fact]
+    public void An_actual_date_before_its_deadline_is_not_late()
+    {
+        var isLate = IntegrationKpiDisplay.IsLate(new DateOnly(2026, 3, 4), new DateOnly(2026, 3, 5));
+
+        isLate.Should().BeFalse();
+    }
+
+    [Fact]
+    public void No_actual_date_is_not_late()
+    {
+        var isLate = IntegrationKpiDisplay.IsLate(null, new DateOnly(2026, 3, 5));
+
+        isLate.Should().BeFalse();
+    }
+
+    [Fact]
+    public void No_deadline_is_not_late()
+    {
+        var isLate = IntegrationKpiDisplay.IsLate(new DateOnly(2026, 3, 6), null);
+
+        isLate.Should().BeFalse();
+    }
 }
 
 public class IntegrationKpiResolverTests

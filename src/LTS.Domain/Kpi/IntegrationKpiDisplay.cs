@@ -13,4 +13,13 @@ public static class IntegrationKpiDisplay
     /// </summary>
     public static int? DaysBetween(DateOnly? start, DateOnly? deadline) =>
         start is { } s && deadline is { } d ? d.DayNumber - s.DayNumber : null;
+
+    /// <summary>
+    /// Whether a leg's own actual (end-milestone) date fell after its stored KPI deadline - the
+    /// same condition IntegrationKpiEvaluator.EvaluateLeg scores as Late, surfaced here for a grid
+    /// to flag the specific date that missed its target rather than only the shipment's overall
+    /// Performance. False whenever either date is missing (nothing to compare yet).
+    /// </summary>
+    public static bool IsLate(DateOnly? actual, DateOnly? deadline) =>
+        actual is { } a && deadline is { } d && a > d;
 }

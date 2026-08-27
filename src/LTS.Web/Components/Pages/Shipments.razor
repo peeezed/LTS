@@ -80,7 +80,11 @@ else
                              HeaderStyle="@KpiHeaderStyle" CellStyle="@KpiCellStyle">
                 <CellTemplate>@KpiDateText(context.Item.KPICustomsClearanceDate)</CellTemplate>
             </TemplateColumn>
-            <PropertyColumn Property="x => x.DepartureCustomsClearanceDate" Title="Export Clearance" Format="yyyy-MM-dd" />
+            <TemplateColumn Title="Export Clearance" SortBy="x => x.DepartureCustomsClearanceDate">
+                <CellTemplate>
+                    <KpiDateCell ActualDate="context.Item.DepartureCustomsClearanceDate" Deadline="context.Item.KPICustomsClearanceDate" />
+                </CellTemplate>
+            </TemplateColumn>
             <TemplateColumn Title="KPI Departure" Sortable="false" Hidden="@(!_showKpi)"
                              HeaderStyle="@KpiHeaderStyle" CellStyle="@KpiCellStyle">
                 <CellTemplate>@KpiDaysText(context.Item.DepartureCustomsClearanceDate, context.Item.KPIDepartureDate)</CellTemplate>
@@ -89,7 +93,11 @@ else
                              HeaderStyle="@KpiHeaderStyle" CellStyle="@KpiCellStyle">
                 <CellTemplate>@KpiDateText(context.Item.KPIDepartureDate)</CellTemplate>
             </TemplateColumn>
-            <PropertyColumn Property="x => x.DepartureDate" Title="Departure" Format="yyyy-MM-dd" />
+            <TemplateColumn Title="Departure" SortBy="x => x.DepartureDate">
+                <CellTemplate>
+                    <KpiDateCell ActualDate="context.Item.DepartureDate" Deadline="context.Item.KPIDepartureDate" />
+                </CellTemplate>
+            </TemplateColumn>
             <TemplateColumn Title="KPI Arrival To Country" Sortable="false" Hidden="@(!_showKpi)"
                              HeaderStyle="@KpiHeaderStyle" CellStyle="@KpiCellStyle">
                 <CellTemplate>@KpiDaysText(context.Item.DepartureDate, context.Item.KPIArrivalToDestinationDate)</CellTemplate>
@@ -98,7 +106,11 @@ else
                              HeaderStyle="@KpiHeaderStyle" CellStyle="@KpiCellStyle">
                 <CellTemplate>@KpiDateText(context.Item.KPIArrivalToDestinationDate)</CellTemplate>
             </TemplateColumn>
-            <PropertyColumn Property="x => x.ArrivalToTargetCountryDate" Title="Arrival To Country" Format="yyyy-MM-dd" />
+            <TemplateColumn Title="Arrival To Country" SortBy="x => x.ArrivalToTargetCountryDate">
+                <CellTemplate>
+                    <KpiDateCell ActualDate="context.Item.ArrivalToTargetCountryDate" Deadline="context.Item.KPIArrivalToDestinationDate" />
+                </CellTemplate>
+            </TemplateColumn>
             <PropertyColumn Property="x => x.CustomsStartDate" Title="Customs Start" Format="yyyy-MM-dd" />
             <TemplateColumn Title="KPI Customs End" Sortable="false" Hidden="@(!_showKpi)"
                              HeaderStyle="@KpiHeaderStyle" CellStyle="@KpiCellStyle">
@@ -108,7 +120,11 @@ else
                              HeaderStyle="@KpiHeaderStyle" CellStyle="@KpiCellStyle">
                 <CellTemplate>@KpiDateText(context.Item.KPIArrivalCustomsEndDate)</CellTemplate>
             </TemplateColumn>
-            <PropertyColumn Property="x => x.CustomsEndDate" Title="Customs End" Format="yyyy-MM-dd" />
+            <TemplateColumn Title="Customs End" SortBy="x => x.CustomsEndDate">
+                <CellTemplate>
+                    <KpiDateCell ActualDate="context.Item.CustomsEndDate" Deadline="context.Item.KPIArrivalCustomsEndDate" />
+                </CellTemplate>
+            </TemplateColumn>
             <TemplateColumn Title="KPI Crossdock Arrival" Sortable="false" Hidden="@(!_showKpi)"
                              HeaderStyle="@KpiHeaderStyle" CellStyle="@KpiCellStyle">
                 <CellTemplate>@KpiDaysText(context.Item.CustomsEndDate, context.Item.KPILeadTimeToXdock)</CellTemplate>
@@ -117,7 +133,11 @@ else
                              HeaderStyle="@KpiHeaderStyle" CellStyle="@KpiCellStyle">
                 <CellTemplate>@KpiDateText(context.Item.KPILeadTimeToXdock)</CellTemplate>
             </TemplateColumn>
-            <PropertyColumn Property="x => x.CrossdockArrivalDate" Title="Crossdock Arrival" Format="yyyy-MM-dd" />
+            <TemplateColumn Title="Crossdock Arrival" SortBy="x => x.CrossdockArrivalDate">
+                <CellTemplate>
+                    <KpiDateCell ActualDate="context.Item.CrossdockArrivalDate" Deadline="context.Item.KPILeadTimeToXdock" />
+                </CellTemplate>
+            </TemplateColumn>
 
             <PropertyColumn Property="x => x.TransferCount" Title="Transfers" />
             <PropertyColumn Property="x => x.TotalBoxes" Title="Boxes" />
