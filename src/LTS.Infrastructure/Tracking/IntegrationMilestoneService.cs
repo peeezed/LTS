@@ -265,6 +265,33 @@ public sealed class IntegrationMilestoneService(
     }
 
     /// <summary>
+    /// Standalone entry point for callers outside a milestone-date batch (e.g.
+    /// ExportAttributeFeedRunner, after backfilling a shipment's KPI-scoping attributes) - reuses
+    /// the same private RecomputeKpiAsync the batch path above calls, just with no pending dates to
+    /// reuse, so there is exactly one implementation of the recompute sequence either way.
+    /// </summary>
+    public async Task RecomputeKpiForShipmentAsync(string referenceNo, CancellationToken cancellationToken = default)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(cancellationToken);
+
+        var shipment = await db.Shipments.FirstOrDefaultAsync(s => s.ReferenceNo == referenceNo, cancellationToken);
+        if (shipment is null)
+        {
+            return;
+        }
+
+        var targets = await db.KpiTargets.AsNoTracking().Where(t => t.IsActive).ToListAsync(cancellationToken);
+        var noPendingDates = new Dictionary<string, LtsIntegrationShipmentDate>(StringComparer.OrdinalIgnoreCase);
+
+        await RecomputeKpiAsync(db, shipment, noPendingDates, targets, clock.Today, cancellationToken);
+
+        if (db.ChangeTracker.HasChanges())
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+    }
+
+    /// <summary>
     /// Recomputes and persists one shipment's CurrentStatus, and every one of its transfers'
     /// LTS_ShipmentTransfers.CurrentStatus alongside it, via the shared
     /// ShipmentStatusAggregator.ComputeStatusesAsync (also used by ShipmentStatusReconciler) -

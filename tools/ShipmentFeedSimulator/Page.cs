@@ -31,6 +31,7 @@ internal static class Page
         <body>
 
         <h1>Shipment Feed Simulator</h1>
+        <p><a href="/export-attributes">Export Attribute Feed Simulator &rarr;</a></p>
         <div class="warning">
             Writes directly into the real <code>LTS_Integration</code> database (LTS_Shipments,
             LTS_ShipmentTransfers, LTS_Boxes) - same upsert logic the live poller uses, just fed

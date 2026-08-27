@@ -35,6 +35,15 @@ public interface IIntegrationMilestoneService
         MilestoneApplyOptions options,
         UserPermissions permissions,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Recomputes and persists one shipment's KPI deadlines/Performance now, independent of any
+    /// milestone-date change - for callers (e.g. ExportAttributeFeedRunner) that update a
+    /// shipment's KPI-scoping attributes through a path other than ApplyAsync and need it rescored
+    /// immediately against its now possibly-different target. No-ops if no shipment matches
+    /// referenceNo.
+    /// </summary>
+    Task RecomputeKpiForShipmentAsync(string referenceNo, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

@@ -23,6 +23,8 @@ public sealed class LtsOptions
 
     public ShipmentFeedOptions ShipmentFeed { get; set; } = new();
 
+    public ExportAttributeFeedOptions ExportAttributeFeed { get; set; } = new();
+
     public ShipmentStatusReconciliationOptions ShipmentStatusReconciliation { get; set; } = new();
 }
 
@@ -70,6 +72,29 @@ public sealed class ShipmentFeedOptions
     public string? SecretName { get; set; }
 
     public int PollSeconds { get; set; } = 300;
+}
+
+/// <summary>
+/// How the export attribute feed poller behaves - finds shipments missing a required KPI-scoping
+/// attribute and backfills them from GetLTSExportFileDetail, one shipment at a time by reference
+/// number. Unrelated to <see cref="ShipmentFeedOptions"/> even though it may share the same host:
+/// different endpoint, different trigger condition, its own poll cycle.
+/// </summary>
+public sealed class ExportAttributeFeedOptions
+{
+    public bool Enabled { get; set; }
+
+    /// <summary>Base URL of the shared internal shipments endpoint.</summary>
+    public string? BaseUrl { get; set; }
+
+    /// <summary>Name of the entry under Integration:Secrets carrying the bearer token.</summary>
+    public string? SecretName { get; set; }
+
+    /// <summary>
+    /// Longer than ShipmentFeedOptions.PollSeconds by default - backfilling a missing attribute is
+    /// not as time-sensitive as picking up a brand-new shipment.
+    /// </summary>
+    public int PollSeconds { get; set; } = 600;
 }
 
 /// <summary>

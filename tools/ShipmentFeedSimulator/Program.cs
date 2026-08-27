@@ -1,8 +1,12 @@
 using System.Text.Json;
 using LTS.Application.Abstractions;
+using LTS.Application.ExportAttributeFeed;
 using LTS.Application.ShipmentFeed;
+using LTS.Application.Tracking;
+using LTS.Infrastructure.ExportAttributeFeed;
 using LTS.Infrastructure.Persistence;
 using LTS.Infrastructure.ShipmentFeed;
+using LTS.Infrastructure.Tracking;
 using Microsoft.EntityFrameworkCore;
 using ShipmentFeedSimulator;
 
@@ -18,6 +22,11 @@ builder.Services.AddSingleton<IClock, SystemClock>();
 // page instead. This stub exists only to satisfy DI.
 builder.Services.AddSingleton<IShipmentFeedClient, UnusedShipmentFeedClient>();
 builder.Services.AddScoped<ShipmentFeedRunner>();
+
+// Same reasoning for ExportAttributeFeedRunner.SimulateAsync and IExportAttributeFeedClient.
+builder.Services.AddSingleton<IExportAttributeFeedClient, UnusedExportAttributeFeedClient>();
+builder.Services.AddScoped<IIntegrationMilestoneService, IntegrationMilestoneService>();
+builder.Services.AddScoped<ExportAttributeFeedRunner>();
 
 var app = builder.Build();
 
@@ -41,6 +50,8 @@ List<T> ParseEntries<T>(string json)
 }
 
 app.MapGet("/", () => Results.Content(Page.Html, "text/html"));
+
+app.MapGet("/export-attributes", () => Results.Content(ExportAttributePage.Html, "text/html"));
 
 // Step 1: parse the GetInvoiceListByCustomerCode response on its own, independent of any detail
 // call - mirrors the real flow, where this call happens first and by itself. Returns just enough
@@ -125,11 +136,48 @@ app.MapPost("/simulate", async (SimulateRequest request, ShipmentFeedRunner runn
     }
 });
 
+// Runs one GetLTSExportFileDetail response (a bare array, or a single object pasted directly)
+// through the real standardize+apply+recompute path. Independent of the /simulate route above -
+// its own request shape, its own runner, no shared state.
+app.MapPost("/simulate-export-attributes", async (ExportAttributeSimulateRequest request, ExportAttributeFeedRunner runner) =>
+{
+    List<ExportFileDetailDto> entries;
+
+    try
+    {
+        entries = ParseEntries<ExportFileDetailDto>(request.DetailJson);
+    }
+    catch (JsonException exception)
+    {
+        return Results.BadRequest(new { error = $"Could not parse the JSON: {exception.Message}" });
+    }
+
+    if (entries.Count == 0)
+    {
+        return Results.BadRequest(new { error = "No entries found in the pasted JSON." });
+    }
+
+    try
+    {
+        var fields = await runner.SimulateAsync(entries[0]);
+
+        return fields is null
+            ? Results.BadRequest(new { error = $"No shipment found with reference number '{entries[0].ExportFileNumber}'." })
+            : Results.Ok(fields);
+    }
+    catch (Exception exception)
+    {
+        return Results.Problem(exception.Message);
+    }
+});
+
 app.Run("http://localhost:5299");
 
 internal sealed record ParseListRequest(string ListJson);
 
 internal sealed record SimulateRequest(string CustomerCode, string ListJson, int SelectedIndex, string DetailJson);
+
+internal sealed record ExportAttributeSimulateRequest(string DetailJson);
 
 /// <summary>Never called - see the registration comment above.</summary>
 internal sealed class UnusedShipmentFeedClient : IShipmentFeedClient
@@ -138,5 +186,12 @@ internal sealed class UnusedShipmentFeedClient : IShipmentFeedClient
         throw new NotSupportedException("The simulator never makes real HTTP calls.");
 
     public Task<IReadOnlyList<InvoiceDetailLineDto>> FetchInvoiceDetailAsync(string invoiceNumber, CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException("The simulator never makes real HTTP calls.");
+}
+
+/// <summary>Never called - see the registration comment above.</summary>
+internal sealed class UnusedExportAttributeFeedClient : IExportAttributeFeedClient
+{
+    public Task<ExportFileDetailDto?> FetchExportFileDetailAsync(string exportFileNumber, CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("The simulator never makes real HTTP calls.");
 }

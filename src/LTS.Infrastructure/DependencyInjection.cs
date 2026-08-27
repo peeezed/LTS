@@ -6,6 +6,7 @@ using LTS.Application.Reference;
 using LTS.Application.Security;
 using LTS.Application.Tracking;
 using LTS.Domain.Entities;
+using LTS.Infrastructure.ExportAttributeFeed;
 using LTS.Infrastructure.Integration;
 using LTS.Infrastructure.Kpi;
 using LTS.Infrastructure.Persistence;
@@ -127,6 +128,14 @@ public static class DependencyInjection
         services.AddScoped<IShipmentFeedClient, ShipmentFeedClient>();
         services.AddScoped<ShipmentFeedRunner>();
         services.AddHostedService<ShipmentFeedPoller>();
+
+        // Export attribute backfill: finds shipments missing a required KPI-scoping attribute and
+        // pulls them from GetLTSExportFileDetail by reference number, then re-scores KPI once
+        // anything it fetched is applied - independent of the shipments feed above (different
+        // endpoint, different trigger condition, its own poll cycle).
+        services.AddScoped<IExportAttributeFeedClient, ExportAttributeFeedClient>();
+        services.AddScoped<ExportAttributeFeedRunner>();
+        services.AddHostedService<ExportAttributeFeedPoller>();
 
         // Catches up LTS_Shipments.CurrentStatus for shipments whose transfer dates changed
         // outside the app (e.g. a future supplier integration writing straight into
