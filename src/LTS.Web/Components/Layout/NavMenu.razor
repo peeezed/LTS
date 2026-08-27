@@ -49,6 +49,10 @@
                 {
                     <MudNavLink Href="@($"/{code}/admin/kpi")" Icon="@Icons.Material.Filled.Speed">KPI Targets</MudNavLink>
                 }
+                @if (_permissions.CanView(PageKeys.AdminDelayAlerts, id))
+                {
+                    <MudNavLink Href="@($"/{code}/admin/delay-alerts")" Icon="@Icons.Material.Filled.NotificationsActive">Delay Alerts</MudNavLink>
+                }
                 @if (_permissions.CanView(PageKeys.AdminIntegrations, id))
                 {
                     <MudNavLink Href="@($"/{code}/admin/integrations")" Icon="@Icons.Material.Filled.Sync">Integrations</MudNavLink>

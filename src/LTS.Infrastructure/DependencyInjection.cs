@@ -5,7 +5,10 @@ using LTS.Application.Kpi;
 using LTS.Application.Reference;
 using LTS.Application.Security;
 using LTS.Application.Tracking;
+using LTS.Application.DelayAlerts;
 using LTS.Domain.Entities;
+using LTS.Infrastructure.DelayAlerts;
+using LTS.Infrastructure.Email;
 using LTS.Infrastructure.ExportAttributeFeed;
 using LTS.Infrastructure.Integration;
 using LTS.Infrastructure.Kpi;
@@ -142,6 +145,14 @@ public static class DependencyInjection
         // LTS_ShipmentTransferDates) - see ShipmentStatusReconciler.
         services.AddScoped<ShipmentStatusReconciler>();
         services.AddHostedService<ShipmentStatusReconciliationPoller>();
+
+        // Delay alert mails: two Excel-attached reports (shipments short of Crossdock Arrival,
+        // transfers short of Store Arrival), configured per country in the admin page and sent on
+        // each config's own daily SendTime - see DelayAlertRunner/DelayAlertReportBuilder.
+        services.AddScoped<IEmailSender, MailKitEmailSender>();
+        services.AddScoped<IDelayAlertAdminService, DelayAlertAdminService>();
+        services.AddScoped<DelayAlertRunner>();
+        services.AddHostedService<DelayAlertPoller>();
 
         return services;
     }

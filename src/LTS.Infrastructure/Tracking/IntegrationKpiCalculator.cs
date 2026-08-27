@@ -69,6 +69,9 @@ internal static class IntegrationKpiCalculator
             IntegrationKpiStep.Xdock, countryId, scope, snapshots);
         var xdockDeadline = xdockTargetDays is { } xd ? crossdockArrival.AddDays(xd) : (DateOnly?)null;
 
+        var localTransportTargetDays = IntegrationKpiResolver.ResolveTargetDays(
+            IntegrationKpiStep.LocalTransportation, countryId, scope, snapshots);
+
         var transferNumbers = await db.ShipmentTransfers
             .Where(t => t.ReferenceNo == shipment.ReferenceNo)
             .Select(t => t.TransferNo)
@@ -88,6 +91,13 @@ internal static class IntegrationKpiCalculator
             }
 
             transferDate.KPICrossdockDepartureDate = xdockDeadline;
+
+            // Fully transfer-scope, unlike Xdock: only computed once this transfer's own Crossdock
+            // Departure has actually happened.
+            transferDate.KPILocalTransportation = transferDate.CrossdockDepartureDate is { } departed && localTransportTargetDays is { } ld
+                ? departed.AddDays(ld)
+                : null;
+
             transferDates.Add(transferDate);
         }
 
@@ -129,13 +139,41 @@ internal static class IntegrationKpiCalculator
         return IntegrationKpiEvaluator.EvaluateShipment(scope, shipmentLegs, xdockLegs, today);
     }
 
-    private static IReadOnlyList<IntegrationKpiTargetSnapshot> ToSnapshots(IReadOnlyList<LtsIntegrationKpiTarget> targets) =>
+    /// <summary>
+    /// One transfer's own Performance - worst of {Xdock, Local Transportation} - computed and
+    /// persisted independently of the shipment's own Performance (which still folds Xdock into
+    /// itself too; that's unrelated to this value and left as-is). Reuses EvaluateShipment's
+    /// worst-of-legs logic with an empty shipment-legs list, exactly mirroring how the shipment
+    /// mail's own evaluation reuses the same method the other way around (empty xdock-legs list).
+    /// </summary>
+    public static PerformanceStatus EvaluateTransferPerformance(
+        KpiAttributeScope scope,
+        DateOnly? shipmentCrossdockArrival,
+        LtsIntegrationShipmentTransferDate? transferDate,
+        DateOnly today)
+    {
+        if (transferDate is null)
+        {
+            return IntegrationKpiEvaluator.HasRequiredAttributes(scope)
+                ? PerformanceStatus.NotStarted
+                : PerformanceStatus.MissingAttributes;
+        }
+
+        var xdockLeg = new KpiLegDates(shipmentCrossdockArrival, transferDate.CrossdockDepartureDate, transferDate.KPICrossdockDepartureDate);
+        var localTransportLeg = new KpiLegDates(transferDate.CrossdockDepartureDate, transferDate.StoreArrivalDate, transferDate.KPILocalTransportation);
+
+        return IntegrationKpiEvaluator.EvaluateShipment(scope, [], [xdockLeg, localTransportLeg], today);
+    }
+
+    /// <summary>Internal (not private) so DelayAlertReportBuilder can reuse it - both classes are Infrastructure-internal.</summary>
+    internal static IReadOnlyList<IntegrationKpiTargetSnapshot> ToSnapshots(IReadOnlyList<LtsIntegrationKpiTarget> targets) =>
         [.. targets.Select(t => new IntegrationKpiTargetSnapshot(
             t.CountryId, t.Step,
             new KpiAttributeScope(t.ExportType, t.LoadingPoint, t.ArrivalCustoms, t.TransportType),
             t.TargetDays, t.IsActive))];
 
-    private static DateOnly? GetDeadline(LtsIntegrationShipmentDate date, IntegrationKpiStep step) => step switch
+    /// <summary>Internal (not private) so DelayAlertReportBuilder can reuse it for the shipment mail's own leg evaluation.</summary>
+    internal static DateOnly? GetDeadline(LtsIntegrationShipmentDate date, IntegrationKpiStep step) => step switch
     {
         IntegrationKpiStep.LoadingToCustomsClearance => date.KPICustomsClearanceDate,
         IntegrationKpiStep.CustomsToDeparture => date.KPIDepartureDate,

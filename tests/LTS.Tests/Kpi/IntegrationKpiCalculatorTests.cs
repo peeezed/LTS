@@ -279,4 +279,65 @@ public class IntegrationKpiEvaluatorTests
 
         status.Should().Be(PerformanceStatus.Overdue);
     }
+
+    [Fact]
+    public void No_delayed_leg_returns_null()
+    {
+        var legs = new[]
+        {
+            (IntegrationKpiStep.LoadingToCustomsClearance,
+                new KpiLegDates(new DateOnly(2026, 3, 1), new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 10))), // OnTime
+            (IntegrationKpiStep.CustomsToDeparture, new KpiLegDates(null, null, null)) // NotStarted
+        };
+
+        var delayed = IntegrationKpiEvaluator.FindDelayedLeg(legs, Today);
+
+        delayed.Should().BeNull();
+    }
+
+    [Fact]
+    public void A_late_leg_is_found()
+    {
+        var legs = new[]
+        {
+            (IntegrationKpiStep.LoadingToCustomsClearance,
+                new KpiLegDates(new DateOnly(2026, 3, 1), new DateOnly(2026, 3, 6), new DateOnly(2026, 3, 5))) // Late
+        };
+
+        var delayed = IntegrationKpiEvaluator.FindDelayedLeg(legs, Today);
+
+        delayed.Should().NotBeNull();
+        delayed!.Value.Step.Should().Be(IntegrationKpiStep.LoadingToCustomsClearance);
+        delayed.Value.Status.Should().Be(PerformanceStatus.Late);
+    }
+
+    [Fact]
+    public void An_overdue_leg_is_found()
+    {
+        var legs = new[]
+        {
+            (IntegrationKpiStep.Xdock, new KpiLegDates(new DateOnly(2026, 3, 1), null, new DateOnly(2026, 3, 15))) // Overdue
+        };
+
+        var delayed = IntegrationKpiEvaluator.FindDelayedLeg(legs, Today);
+
+        delayed.Should().NotBeNull();
+        delayed!.Value.Step.Should().Be(IntegrationKpiStep.Xdock);
+        delayed.Value.Status.Should().Be(PerformanceStatus.Overdue);
+    }
+
+    [Fact]
+    public void The_first_qualifying_leg_in_sequence_wins_when_more_than_one_is_delayed()
+    {
+        var legs = new[]
+        {
+            (IntegrationKpiStep.LoadingToCustomsClearance,
+                new KpiLegDates(new DateOnly(2026, 3, 1), new DateOnly(2026, 3, 6), new DateOnly(2026, 3, 5))), // Late
+            (IntegrationKpiStep.Xdock, new KpiLegDates(new DateOnly(2026, 3, 1), null, new DateOnly(2026, 3, 15))) // Overdue
+        };
+
+        var delayed = IntegrationKpiEvaluator.FindDelayedLeg(legs, Today);
+
+        delayed!.Value.Step.Should().Be(IntegrationKpiStep.LoadingToCustomsClearance);
+    }
 }

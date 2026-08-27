@@ -33,7 +33,11 @@ public static class IntegrationKpiCatalog
         // is transfer-scope - IntegrationKpiCalculator checks MilestoneCatalog.Get(To).Scope to
         // know to read the transfer, not the shipment, for the actual end date and its deadline.
         new(IntegrationKpiStep.Xdock, "XDock",
-            MilestoneType.CrossdockArrival, MilestoneType.CrossdockDeparture)
+            MilestoneType.CrossdockArrival, MilestoneType.CrossdockDeparture),
+
+        // Fully transfer-scope, unlike Xdock - both ends live on LTS_ShipmentTransferDates.
+        new(IntegrationKpiStep.LocalTransportation, "Local Transportation",
+            MilestoneType.CrossdockDeparture, MilestoneType.StoreArrival)
     ];
 
     private static readonly Dictionary<IntegrationKpiStep, IntegrationKpiStepDefinition> ByStep =

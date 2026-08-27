@@ -19,10 +19,10 @@ namespace LTS.Infrastructure.Tracking;
 /// the end via ShipmentStatusAggregator, the same logic IntegrationShipmentQueryService uses to
 /// compute the same values for display: the shipment capped at AtCrossdock from its own
 /// milestones, then InTransitToStore/ArrivedAtStore once its transfers move further; each
-/// transfer seeded from that same floor, then advancing on its own dates. A transfer's own
-/// Performance column is still not written here - only the shipment's is, scored via
-/// IntegrationKpiCalculator (which does read every touched transfer's KPICrossdockDepartureDate/
-/// CrossdockDepartureDate for the XDock leg, without writing that transfer's Performance).
+/// transfer seeded from that same floor, then advancing on its own dates. Both LTS_Shipments.Performance
+/// and every touched transfer's own LTS_ShipmentTransfers.Performance are scored via
+/// IntegrationKpiCalculator - the shipment's still folds in every transfer's XDock leg; a
+/// transfer's own value is the worst of just its own {XDock, Local Transportation} legs.
 ///
 /// Deliberately smaller than the old MilestoneService in one remaining way: no audit trail yet.
 /// Chronology/future-date validation is kept, since it is cheap and independent of KPI.
@@ -366,6 +366,21 @@ public sealed class IntegrationMilestoneService(
         shipment.Performance = IntegrationKpiCalculator
             .EvaluatePerformance(shipment, date, transferDates, today)
             .ToDisplay();
+
+        var scope = IntegrationKpiCalculator.ScopeOf(shipment);
+        var transfers = await db.ShipmentTransfers
+            .Where(t => t.ReferenceNo == shipment.ReferenceNo)
+            .ToListAsync(cancellationToken);
+
+        foreach (var transfer in transfers)
+        {
+            var transferDate = transferDates.FirstOrDefault(d => d.TransferNo == transfer.TransferNo)
+                ?? await db.ShipmentTransferDates.FirstOrDefaultAsync(d => d.TransferNo == transfer.TransferNo, cancellationToken);
+
+            transfer.Performance = IntegrationKpiCalculator
+                .EvaluateTransferPerformance(scope, date?.CrossdockArrivalDate, transferDate, today)
+                .ToDisplay();
+        }
     }
 
     /// <summary>Rejects a date typed for an event that has not occurred, or one out of order.</summary>

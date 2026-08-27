@@ -1,0 +1,140 @@
+@page "/{CountryCode}/admin/delay-alerts"
+@rendermode @(new InteractiveServerRenderMode(prerender: false))
+@layout AppLayout
+@inherits CountryPageBase
+@using LTS.Application.DelayAlerts
+@inject IDelayAlertAdminService DelayAlertAdmin
+@inject ISnackbar Snackbar
+
+<PageTitle>Delay alerts · LTS</PageTitle>
+
+<AppShell>
+@if (!Ready)
+{
+    <MudProgressLinear Color="Color.Primary" Indeterminate="true" />
+}
+else
+{
+    <MudText Typo="Typo.h5" Class="mb-1">Delay Alerts</MudText>
+    <MudText Typo="Typo.body2" Class="mud-text-secondary mb-4">
+        Scheduled Excel-attached mails for @Country.CountryCode, listing shipments/transfers currently Late or Overdue.
+        Each keeps listing a row for 7 days after it finally completes.
+    </MudText>
+
+    <MudTabs Elevation="1" Rounded="true">
+        <MudTabPanel Text="Shipment Delay Alert">
+            @RenderForm(_shipment, DelayAlertMailKind.Shipment,
+                "Shipments not yet arrived at Crossdock, scored on the 5 shipment-only KPI legs.")
+        </MudTabPanel>
+        <MudTabPanel Text="Transfer Delay Alert">
+            @RenderForm(_transfer, DelayAlertMailKind.Transfer,
+                "Transfers not yet arrived at their store, scored on the Xdock and Local Transportation legs.")
+        </MudTabPanel>
+    </MudTabs>
+}
+</AppShell>
+
+@code {
+    protected override string PageKey => PageKeys.AdminDelayAlerts;
+
+    private readonly ConfigForm _shipment = new();
+    private readonly ConfigForm _transfer = new();
+
+    protected override async Task OnCountryReadyAsync()
+    {
+        await LoadAsync(_shipment, DelayAlertMailKind.Shipment);
+        await LoadAsync(_transfer, DelayAlertMailKind.Transfer);
+    }
+
+    private async Task LoadAsync(ConfigForm form, DelayAlertMailKind mailKind)
+    {
+        var row = await DelayAlertAdmin.GetConfigAsync(CountryId, mailKind);
+
+        form.IsEnabled = row.IsEnabled;
+        form.Recipients = row.Recipients;
+        form.SendTime = row.SendTime.ToTimeSpan();
+        form.Subject = row.Subject;
+        form.Body = row.Body;
+        form.LastSentDate = row.LastSentDate;
+    }
+
+    private async Task SaveAsync(ConfigForm form, DelayAlertMailKind mailKind)
+    {
+        try
+        {
+            await DelayAlertAdmin.SaveAsync(CountryId, mailKind, new DelayAlertConfigInput
+            {
+                IsEnabled = form.IsEnabled,
+                Recipients = form.Recipients,
+                SendTime = TimeOnly.FromTimeSpan(form.SendTime ?? TimeSpan.FromHours(8)),
+                Subject = form.Subject,
+                Body = form.Body
+            });
+
+            Snackbar.Add("Delay alert settings saved.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+
+    private async Task SendNowAsync(DelayAlertMailKind mailKind)
+    {
+        try
+        {
+            await DelayAlertAdmin.SendNowAsync(CountryId, mailKind);
+            Snackbar.Add("Sent.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+
+    private RenderFragment RenderForm(ConfigForm form, DelayAlertMailKind mailKind, string description) => @<div>
+        <MudText Typo="Typo.body2" Class="mud-text-secondary my-3">@description</MudText>
+
+        <MudGrid Spacing="2">
+            <MudItem xs="12">
+                <MudSwitch T="bool" @bind-Value="form.IsEnabled" Color="Color.Primary" Label="Enabled" />
+            </MudItem>
+            <MudItem xs="12">
+                <MudTextField T="string?" @bind-Value="form.Recipients" Label="Recipients"
+                               HelperText="Comma or semicolon-separated email addresses" Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="12" sm="4">
+                <MudTimePicker T="TimeSpan?" @bind-Time="form.SendTime" Label="Send time" Variant="Variant.Outlined" AmPm="false" />
+            </MudItem>
+            <MudItem xs="12">
+                <MudTextField T="string?" @bind-Value="form.Subject" Label="Subject" Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="12">
+                <MudTextField T="string?" @bind-Value="form.Body" Label="Body" Lines="4" Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="12">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="() => SaveAsync(form, mailKind)">
+                        Save
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined" OnClick="() => SendNowAsync(mailKind)">
+                        Send Now
+                    </MudButton>
+                    <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                        Last sent: @(form.LastSentDate?.ToString("yyyy-MM-dd") ?? "never")
+                    </MudText>
+                </MudStack>
+            </MudItem>
+        </MudGrid>
+    </div>;
+
+    private sealed class ConfigForm
+    {
+        public bool IsEnabled { get; set; }
+        public string? Recipients { get; set; }
+        public TimeSpan? SendTime { get; set; }
+        public string? Subject { get; set; }
+        public string? Body { get; set; }
+        public DateOnly? LastSentDate { get; set; }
+    }
+}

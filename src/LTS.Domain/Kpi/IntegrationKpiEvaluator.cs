@@ -139,4 +139,28 @@ public static class IntegrationKpiEvaluator
 
         return PerformanceSeverity.Worst(statuses);
     }
+
+    /// <summary>Which specific leg is behind a Late/Overdue result, for reporting - e.g. the delay alert mails.</summary>
+    public readonly record struct DelayedLeg(IntegrationKpiStep Step, KpiLegDates Dates, PerformanceStatus Status);
+
+    /// <summary>
+    /// The first leg (in the given, chronological order) currently Late or Overdue, or null if none
+    /// is. Legs are sequential in practice, so only one is ever really "active" at a time; this
+    /// picks the earliest one that qualifies rather than ranking severity, since two different late
+    /// legs aren't meaningfully comparable by rank the way two shipment-level rollups are.
+    /// </summary>
+    public static DelayedLeg? FindDelayedLeg(
+        IReadOnlyList<(IntegrationKpiStep Step, KpiLegDates Dates)> legs, DateOnly today)
+    {
+        foreach (var (step, dates) in legs)
+        {
+            var status = EvaluateLeg(dates, today);
+            if (status is PerformanceStatus.Late or PerformanceStatus.Overdue)
+            {
+                return new DelayedLeg(step, dates, status);
+            }
+        }
+
+        return null;
+    }
 }

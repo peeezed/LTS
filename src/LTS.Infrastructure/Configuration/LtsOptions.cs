@@ -26,6 +26,10 @@ public sealed class LtsOptions
     public ExportAttributeFeedOptions ExportAttributeFeed { get; set; } = new();
 
     public ShipmentStatusReconciliationOptions ShipmentStatusReconciliation { get; set; } = new();
+
+    public MailOptions Mail { get; set; } = new();
+
+    public DelayAlertOptions DelayAlerts { get; set; } = new();
 }
 
 /// <summary>The first administrator, created on an empty database so someone can log in.</summary>
@@ -111,4 +115,39 @@ public sealed class ShipmentStatusReconciliationOptions
     public bool Enabled { get; set; } = true;
 
     public int PollSeconds { get; set; } = 60;
+}
+
+/// <summary>
+/// SMTP settings used to send every outgoing email (currently just the delay alert mails). The
+/// password is never stored here - it's read via Integration:Secrets:{SecretName}, the same
+/// convention ShipmentFeedClient/ExportAttributeFeedClient already use for their bearer tokens.
+/// </summary>
+public sealed class MailOptions
+{
+    public string? Host { get; set; }
+
+    public int Port { get; set; } = 587;
+
+    public bool UseSsl { get; set; } = true;
+
+    public string? Username { get; set; }
+
+    /// <summary>Name of the entry under Integration:Secrets carrying the SMTP password.</summary>
+    public string? SecretName { get; set; }
+
+    public string? FromAddress { get; set; }
+
+    public string? FromName { get; set; }
+}
+
+/// <summary>
+/// How the delay alert poller behaves - CheckIntervalSeconds is just how often it wakes up to see
+/// whether any per-country LTS_DelayAlertConfigs row is due, not the mail's own send time (that's
+/// each config's own SendTime, configured per country in the admin page).
+/// </summary>
+public sealed class DelayAlertOptions
+{
+    public bool Enabled { get; set; } = true;
+
+    public int CheckIntervalSeconds { get; set; } = 60;
 }

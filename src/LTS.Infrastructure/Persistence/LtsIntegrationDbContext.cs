@@ -1,3 +1,4 @@
+using LTS.Application.DelayAlerts;
 using LTS.Application.Reference;
 using LTS.Domain.Entities;
 using LTS.Domain.Enums;
@@ -33,6 +34,7 @@ public class LtsIntegrationDbContext(DbContextOptions<LtsIntegrationDbContext> o
 
     public DbSet<LtsIntegrationKpiTarget> KpiTargets => Set<LtsIntegrationKpiTarget>();
     public DbSet<LtsShipmentFeedStagingRecord> ShipmentFeedStaging => Set<LtsShipmentFeedStagingRecord>();
+    public DbSet<LtsIntegrationDelayAlertConfig> DelayAlertConfigs => Set<LtsIntegrationDelayAlertConfig>();
 
     // The seven shipment attribute lookup tables all share the same Code+Description shape, so
     // one shared-type entity (LtsIntegrationAttribute) is mapped onto each rather than declaring
@@ -187,6 +189,14 @@ public class LtsIntegrationDbContext(DbContextOptions<LtsIntegrationDbContext> o
             entity.Property(s => s.Status).HasConversion<string>().HasMaxLength(20);
         });
 
+        builder.Entity<LtsIntegrationDelayAlertConfig>(entity =>
+        {
+            entity.ToTable("LTS_DelayAlertConfigs");
+            entity.HasKey(c => c.Id);
+            entity.Property(c => c.Id).HasColumnName("ID");
+            entity.Property(c => c.MailKind).HasConversion<string>().HasMaxLength(20);
+        });
+
         foreach (var (name, table) in new[]
         {
             ("ArrivalCustomsAttribute", "LTS_ArrivalCustoms"),
@@ -316,13 +326,18 @@ public class LtsIntegrationShipmentTransfer
 /// <summary>
 /// One row of LTS_ShipmentTransferDates: a transfer's crossdock and store dates, plus
 /// KPICrossdockDepartureDate - the deadline for this transfer's own CrossdockDepartureDate, the
-/// one KPI leg (XDock) whose start is on the shipment but whose end is on the transfer.
+/// one KPI leg (XDock) whose start is on the shipment but whose end is on the transfer - and
+/// KPILocalTransportation, the deadline for StoreArrivalDate, a leg fully contained on the
+/// transfer (Crossdock Departure to Store Arrival). Declared here between CrossdockDepartureDate
+/// and PlannedStoreArrivalDate to mirror the timeline, though ALTER TABLE ADD always appends the
+/// column physically at the end of the live table regardless of this declaration order.
 /// </summary>
 public class LtsIntegrationShipmentTransferDate
 {
     public required string TransferNo { get; set; }
     public DateOnly? KPICrossdockDepartureDate { get; set; }
     public DateOnly? CrossdockDepartureDate { get; set; }
+    public DateOnly? KPILocalTransportation { get; set; }
     public DateOnly? PlannedStoreArrivalDate { get; set; }
     public DateOnly? StoreArrivalDate { get; set; }
 }
@@ -383,3 +398,22 @@ public class LtsShipmentFeedStagingRecord
 }
 
 public enum ShipmentFeedStagingStatus { Pending, Processed, Failed }
+
+/// <summary>
+/// One row of LTS_DelayAlertConfigs: one country's settings for one of the two delay alert mails
+/// (Shipment or Transfer) - who receives it, what time of day it goes out, and its subject/body.
+/// Exactly one send per day per config (SendTime, not a list) - the simplest shape covering "a
+/// daily digest"; see DelayAlertRunner for how LastSentDate prevents a double-send the same day.
+/// </summary>
+public class LtsIntegrationDelayAlertConfig
+{
+    public int Id { get; set; }
+    public required int CountryId { get; set; }
+    public required DelayAlertMailKind MailKind { get; set; }
+    public bool IsEnabled { get; set; }
+    public string? Recipients { get; set; }
+    public TimeOnly SendTime { get; set; } = new(8, 0);
+    public string? Subject { get; set; }
+    public string? Body { get; set; }
+    public DateOnly? LastSentDate { get; set; }
+}
