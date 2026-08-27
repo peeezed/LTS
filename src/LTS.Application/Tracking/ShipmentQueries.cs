@@ -81,6 +81,17 @@ public sealed record ShipmentRow
     public DateOnly? CustomsEndDate { get; init; }
     public DateOnly? CrossdockArrivalDate { get; init; }
 
+    /// <summary>
+    /// The 5 shipment-scope KPI deadlines, each gating the milestone immediately after it in the
+    /// properties above (e.g. KPICustomsClearanceDate is the deadline for DepartureCustomsClearanceDate) -
+    /// see IntegrationKpiCatalog. Null wherever the leg hasn't started or no target matched.
+    /// </summary>
+    public DateOnly? KPICustomsClearanceDate { get; init; }
+    public DateOnly? KPIDepartureDate { get; init; }
+    public DateOnly? KPIArrivalToDestinationDate { get; init; }
+    public DateOnly? KPIArrivalCustomsEndDate { get; init; }
+    public DateOnly? KPILeadTimeToXdock { get; init; }
+
     public int TransferCount { get; init; }
     public int TotalBoxes { get; init; }
     public int TotalItems { get; init; }
@@ -120,6 +131,16 @@ public sealed record TransferRow
 
     public int TotalBoxes { get; init; }
     public int TotalItems { get; init; }
+
+    /// <summary>
+    /// The shipment's own Crossdock Arrival date - the start of the one KPI leg (XDock) that
+    /// straddles the shipment/transfer boundary, needed here to show its target/deadline pair
+    /// alongside CrossdockDepartureDate below.
+    /// </summary>
+    public DateOnly? ShipmentCrossdockArrivalDate { get; init; }
+
+    /// <summary>The XDock leg's deadline for this transfer's own CrossdockDepartureDate. See IntegrationKpiCatalog.</summary>
+    public DateOnly? KPICrossdockDepartureDate { get; init; }
 
     public DateOnly? CrossdockDepartureDate { get; init; }
     public DateOnly? PlannedStoreArrivalDate { get; init; }

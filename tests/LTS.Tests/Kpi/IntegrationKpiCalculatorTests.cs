@@ -4,6 +4,33 @@ using LTS.Domain.Kpi;
 
 namespace LTS.Tests.Kpi;
 
+public class IntegrationKpiDisplayTests
+{
+    [Fact]
+    public void Days_between_a_start_and_its_deadline_is_the_difference_in_days()
+    {
+        var days = IntegrationKpiDisplay.DaysBetween(new DateOnly(2026, 3, 1), new DateOnly(2026, 3, 4));
+
+        days.Should().Be(3);
+    }
+
+    [Fact]
+    public void No_start_date_yields_no_days()
+    {
+        var days = IntegrationKpiDisplay.DaysBetween(null, new DateOnly(2026, 3, 4));
+
+        days.Should().BeNull();
+    }
+
+    [Fact]
+    public void No_deadline_yields_no_days()
+    {
+        var days = IntegrationKpiDisplay.DaysBetween(new DateOnly(2026, 3, 1), null);
+
+        days.Should().BeNull();
+    }
+}
+
 public class IntegrationKpiResolverTests
 {
     private static readonly KpiAttributeScope Shipment = new("Export", "Istanbul", "Georgia Customs", "Truck");

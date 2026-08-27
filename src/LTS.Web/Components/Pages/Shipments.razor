@@ -16,6 +16,7 @@ else
     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
         <MudText Typo="Typo.h5">Shipments</MudText>
         <MudSpacer />
+        <MudSwitch T="bool" @bind-Value="_showKpi" Color="Color.Primary" Label="Show KPI columns" Class="mr-4" />
         <MudText Typo="Typo.body2" Class="mud-text-secondary">
             Tracked from loading to crossdock arrival
         </MudText>
@@ -61,13 +62,58 @@ else
             <PropertyColumn Property="x => x.LogisticsCompany" Title="Logistics Company" />
             <PropertyColumn Property="x => x.Broker" Title="Broker" />
 
-            @* Milestone dates, in lifecycle order. *@
+            @* Milestone dates, in lifecycle order, each optionally preceded by its KPI target/deadline pair. *@
             <PropertyColumn Property="x => x.LoadingDate" Title="Loading" Format="yyyy-MM-dd" />
+            @if (_showKpi)
+            {
+                <TemplateColumn Title="KPI (days)" Sortable="false">
+                    <CellTemplate>@KpiDaysText(context.Item.LoadingDate, context.Item.KPICustomsClearanceDate)</CellTemplate>
+                </TemplateColumn>
+                <TemplateColumn Title="KPI Calculated Date" Sortable="false">
+                    <CellTemplate>@KpiDateText(context.Item.KPICustomsClearanceDate)</CellTemplate>
+                </TemplateColumn>
+            }
             <PropertyColumn Property="x => x.DepartureCustomsClearanceDate" Title="Export Clearance" Format="yyyy-MM-dd" />
+            @if (_showKpi)
+            {
+                <TemplateColumn Title="KPI (days)" Sortable="false">
+                    <CellTemplate>@KpiDaysText(context.Item.DepartureCustomsClearanceDate, context.Item.KPIDepartureDate)</CellTemplate>
+                </TemplateColumn>
+                <TemplateColumn Title="KPI Calculated Date" Sortable="false">
+                    <CellTemplate>@KpiDateText(context.Item.KPIDepartureDate)</CellTemplate>
+                </TemplateColumn>
+            }
             <PropertyColumn Property="x => x.DepartureDate" Title="Departure" Format="yyyy-MM-dd" />
+            @if (_showKpi)
+            {
+                <TemplateColumn Title="KPI (days)" Sortable="false">
+                    <CellTemplate>@KpiDaysText(context.Item.DepartureDate, context.Item.KPIArrivalToDestinationDate)</CellTemplate>
+                </TemplateColumn>
+                <TemplateColumn Title="KPI Calculated Date" Sortable="false">
+                    <CellTemplate>@KpiDateText(context.Item.KPIArrivalToDestinationDate)</CellTemplate>
+                </TemplateColumn>
+            }
             <PropertyColumn Property="x => x.ArrivalToTargetCountryDate" Title="Arrival To Country" Format="yyyy-MM-dd" />
             <PropertyColumn Property="x => x.CustomsStartDate" Title="Customs Start" Format="yyyy-MM-dd" />
+            @if (_showKpi)
+            {
+                <TemplateColumn Title="KPI (days)" Sortable="false">
+                    <CellTemplate>@KpiDaysText(context.Item.CustomsStartDate, context.Item.KPIArrivalCustomsEndDate)</CellTemplate>
+                </TemplateColumn>
+                <TemplateColumn Title="KPI Calculated Date" Sortable="false">
+                    <CellTemplate>@KpiDateText(context.Item.KPIArrivalCustomsEndDate)</CellTemplate>
+                </TemplateColumn>
+            }
             <PropertyColumn Property="x => x.CustomsEndDate" Title="Customs End" Format="yyyy-MM-dd" />
+            @if (_showKpi)
+            {
+                <TemplateColumn Title="KPI (days)" Sortable="false">
+                    <CellTemplate>@KpiDaysText(context.Item.CustomsEndDate, context.Item.KPILeadTimeToXdock)</CellTemplate>
+                </TemplateColumn>
+                <TemplateColumn Title="KPI Calculated Date" Sortable="false">
+                    <CellTemplate>@KpiDateText(context.Item.KPILeadTimeToXdock)</CellTemplate>
+                </TemplateColumn>
+            }
             <PropertyColumn Property="x => x.CrossdockArrivalDate" Title="Crossdock Arrival" Format="yyyy-MM-dd" />
 
             <PropertyColumn Property="x => x.TransferCount" Title="Transfers" />
@@ -98,6 +144,14 @@ else
 
     private MudDataGrid<ShipmentRow>? _grid;
     private ShipmentFilter _filter = new();
+
+    /// <summary>Resets on every visit - no persisted preference exists yet for this.</summary>
+    private bool _showKpi;
+
+    private static string KpiDaysText(DateOnly? start, DateOnly? deadline) =>
+        IntegrationKpiDisplay.DaysBetween(start, deadline) is { } days ? $"{days}d" : "—";
+
+    private static string KpiDateText(DateOnly? deadline) => deadline?.ToString("yyyy-MM-dd") ?? "—";
 
     private async Task<GridData<ShipmentRow>> LoadAsync(GridState<ShipmentRow> state)
     {

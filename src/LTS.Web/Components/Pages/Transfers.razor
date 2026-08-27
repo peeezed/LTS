@@ -16,6 +16,7 @@ else
     <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
         <MudText Typo="Typo.h5">Transfers</MudText>
         <MudSpacer />
+        <MudSwitch T="bool" @bind-Value="_showKpi" Color="Color.Primary" Label="Show KPI columns" Class="mr-4" />
         <MudText Typo="Typo.body2" Class="mud-text-secondary">
             The store legs a shipment is split into at the crossdock
         </MudText>
@@ -46,6 +47,15 @@ else
             <PropertyColumn Property="x => x.TotalBoxes" Title="Total Boxes" />
             <PropertyColumn Property="x => x.TotalItems" Title="Total Items" />
 
+            @if (_showKpi)
+            {
+                <TemplateColumn Title="KPI (days)" Sortable="false">
+                    <CellTemplate>@KpiDaysText(context.Item.ShipmentCrossdockArrivalDate, context.Item.KPICrossdockDepartureDate)</CellTemplate>
+                </TemplateColumn>
+                <TemplateColumn Title="KPI Calculated Date" Sortable="false">
+                    <CellTemplate>@KpiDateText(context.Item.KPICrossdockDepartureDate)</CellTemplate>
+                </TemplateColumn>
+            }
             <PropertyColumn Property="x => x.CrossdockDepartureDate" Title="Crossdock Departure" Format="yyyy-MM-dd" />
             <PropertyColumn Property="x => x.PlannedStoreArrivalDate" Title="Planned Store Arrival" Format="yyyy-MM-dd" />
             <PropertyColumn Property="x => x.StoreArrivalDate" Title="Store Arrival" Format="yyyy-MM-dd" />
@@ -76,6 +86,14 @@ else
 
     private MudDataGrid<TransferRow>? _grid;
     private ShipmentFilter _filter = new();
+
+    /// <summary>Resets on every visit - no persisted preference exists yet for this.</summary>
+    private bool _showKpi;
+
+    private static string KpiDaysText(DateOnly? start, DateOnly? deadline) =>
+        IntegrationKpiDisplay.DaysBetween(start, deadline) is { } days ? $"{days}d" : "—";
+
+    private static string KpiDateText(DateOnly? deadline) => deadline?.ToString("yyyy-MM-dd") ?? "—";
 
     private async Task<GridData<TransferRow>> LoadAsync(GridState<TransferRow> state)
     {
