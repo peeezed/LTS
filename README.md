@@ -9,16 +9,18 @@ transfer continues: **crossdock departure → store arrival → store pre-accept
 acceptance**. LTS tracks both halves, scores every step against a KPI target, and lets logistics
 companies and brokers enter their own dates without seeing each other's.
 
-Countries differ in *how* their data arrives, never in *what* it means. An integration layer —
-invisible to users — normalises every source system onto one standard status model, so the
-screens, statuses and KPIs are identical everywhere.
+The app is mid-migration onto **`LTS_Integration`**, an external SQL Server database owned by the
+company's own systems. All live tracking pages read and write it today; a couple of older pieces
+(flagged below) still hang off the app's original, now largely retired database. Data arrives on
+`LTS_Integration` either through scheduled feed polls from the company's internal APIs, or typed
+in directly through Shipment Details — the pages and KPI engine don't care which.
 
 ---
 
 ## Running it
 
-Requires the **.NET 9 SDK** and **SQL Server LocalDB** (both already present on the original
-development machine).
+Requires the **.NET 9 SDK**, and access to both a **SQL Server LocalDB** instance (the app's
+original database, `Lts`) and the external **`LTS_Integration`** SQL Server database.
 
 ```bash
 dotnet build
@@ -26,23 +28,34 @@ dotnet test
 dotnet run --project src/LTS.Web
 ```
 
-The app creates and migrates its database on startup. In `Development` it also seeds a full demo
-dataset — 2 countries, ~240 shipments, ~800 transfers, KPI targets, mock integration sources —
-so every screen has something real to show.
+Sign-in accounts are created by an administrator — there is no self-registration. On first run,
+if no admin account exists yet, one is bootstrapped from `Lts:Admin` in `appsettings.json`
+(default `admin@lts.local` / `ChangeMe!2026`, forced password change at first sign-in). Every
+other account is created from **Admin > Users** with a generated one-time password shown once.
+Sign-in itself is checked against `LTS_Integration`, not the old database.
 
-Then open the app and sign in:
+**Settings** live under `Lts` in `appsettings.json`:
 
-| Account | Password | What it demonstrates |
-|---|---|---|
-| `admin@lts.local` | `ChangeMe!2026` | Everything, including user and integration administration |
-| `logistics@lts.local` | `Demo!Pass2026` | Logistics department: all shipments, all date fields |
-| `carrier@lts.local` | `Demo!Pass2026` | Logistics company: only its own shipments, only its own date fields |
-| `broker@lts.local` | `Demo!Pass2026` | Broker: only its own shipments, only the two customs dates |
+| Key | Purpose |
+|---|---|
+| `ApplyMigrationsOnStartup`, `SeedDemoData` | Apply EF migrations / seed demo data into the **old** database only (see caveat below) |
+| `Admin` | The bootstrap administrator's email, name and initial password |
+| `Integration` | The legacy, per-country JSON-adapter poller (off by default) |
+| `ShipmentFeed` | Poll interval, base URL and secret name for the shipment-header feed |
+| `ExportAttributeFeed` | Poll interval, base URL and secret name for the attribute-backfill feed |
+| `ShipmentStatusReconciliation` | Poll interval for catching up stale `CurrentStatus` values |
+| `Mail` | SMTP host/port/credentials for delay alert mails |
+| `DelayAlerts` | How often the delay-alert scheduler checks whether any country's mail is due |
 
-The admin password is a bootstrap credential and must be changed at first sign-in.
+Feed and mail credentials are never stored in the database or in `appsettings.json` — each is read
+at runtime from `Integration:Secrets:{SecretName}` (e.g. via `dotnet user-secrets` locally).
 
-**Settings** live under `Lts` in `appsettings.json`: `SeedDemoData`, `ApplyMigrationsOnStartup`,
-the initial admin, and the integration poller's interval and mock data folder.
+**Known gap:** `SeedDemoData: true` seeds working demo logins (`logistics@lts.local`,
+`carrier@lts.local`, `broker@lts.local`, password `Demo!Pass2026`) plus a full shipment dataset —
+but the shipment data lands in the **old** database, which the live Shipments/Transfers/On The
+Way/Shipment Details/Audit Log pages no longer read. Demo logins are therefore useful for
+exercising the permission model and page shell, not for seeing realistic shipment data — there is
+currently no seeder for `LTS_Integration` itself.
 
 ---
 
@@ -50,78 +63,108 @@ the initial admin, and the integration poller's interval and mock data folder.
 
 ```
 src/
-├─ LTS.Domain          entities, the milestone and KPI catalogs, scoring rules (no dependencies)
-├─ LTS.Application     services, DTOs, permission model, Excel import, integration contracts
-├─ LTS.Infrastructure  EF Core + SQL Server, Identity, adapters, the poller
+├─ LTS.Domain          entities, milestone/KPI catalogs, scoring rules (no dependencies)
+├─ LTS.Application     services, DTOs, permission model, Excel import, feed/mail contracts
+├─ LTS.Infrastructure  EF Core + SQL Server, Identity, the feed pollers, mail sending
 └─ LTS.Web             Blazor Server + MudBlazor
+tools/
+└─ ShipmentFeedSimulator  standalone app for running real feed payloads through the real
+                          standardize+upsert pipeline by hand, against a real LTS_Integration DB
 tests/
-└─ LTS.Tests           81 tests over the scoring, permission, milestone and import rules
+└─ LTS.Tests           128 tests over KPI scoring, permissions, tracking, Excel import and the feeds
 ```
 
-### The standard status model
+### Two databases, one in retreat
 
-Twelve milestones, fixed in code in `MilestoneCatalog`, each with an owner, a lifecycle position
-and the status it confers. This one catalog drives the entry form's field groups, the Excel
-template, the status-mapping dropdown and the current-status calculation, so those can never
-disagree with each other.
+- **`LTS_Integration`** (connection string `LtsIntegration`) — the live database. Its schema is
+  managed by hand (never migrated by EF); `LtsIntegrationDbContext` only ever maps tables that
+  already exist. Identity, Shipments, Transfers, On The Way, Shipment Details, KPI Targets, Delay
+  Alerts and the Audit Log all read and write here through a parallel set of `Integration`-prefixed
+  services (`IntegrationShipmentQueryService`, `IntegrationMilestoneService`,
+  `IntegrationKpiAdminService`, `IntegrationAuditQueryService`, …).
+- **`Lts`** (the app's original LocalDB, EF-migrated) — still real for exactly two things: **Date
+  Upload** (Excel bulk entry still writes here, through the old `IMilestoneService`) and **Admin >
+  Integrations** (the old per-country JSON-adapter poller and its status mappings, which shows a
+  warning banner if the old database is unreachable). Everything else that once lived here — the
+  old audit log, the old KPI admin, the demo-data shipment set — has no live page reading it
+  anymore.
 
-Status is never stored as an independent fact — it is derived from the dates that exist
-(`TrackingStatusCalculator`), so the two cannot drift apart.
+Both sides share one vocabulary: `MilestoneCatalog` (12 milestones — 7 shipment-scope, 5
+transfer-scope) and `MilestoneType` are used by the old and new writers alike, so a milestone means
+the same thing everywhere; only *which database* records it differs.
+
+### How shipments get into `LTS_Integration`
+
+Two independent, config-driven feed pollers pull from the company's own internal APIs — no country
+has to open a route inwards:
+
+- **Shipment Feed** (`ShipmentFeedPoller`, default every 5 minutes) — for each country with a
+  configured customer code, calls `GetInvoiceListByCustomerCode` for shipment headers and the six
+  attribute codes, then `GetInvoiceDetailByInvoiceNumber` per shipment for its boxes/stores.
+  Standardizes raw codes against LTS's own lookup tables and upserts `LTS_Shipments` /
+  `LTS_ShipmentTransfers` / `LTS_Boxes`. Every raw response is staged (append-only) before being
+  applied, and one bad shipment never stops the rest of the batch.
+- **Export Attribute Feed** (`ExportAttributeFeedPoller`, default every 10 minutes) — finds
+  shipments missing any of the four attributes that gate KPI scoring (Export Type, Loading Point,
+  Arrival Customs, Transport Type), fetches each one's detail via `GetLTSExportFileDetail`, applies
+  only the fields that came back non-blank, and re-scores that shipment's KPI immediately.
+
+`tools/ShipmentFeedSimulator` runs the exact same standardize+upsert code both pollers use, fed
+from API responses pasted by hand instead of a live HTTP call — useful for onboarding a country
+before its real endpoint is reachable, or for reproducing a specific payload. It writes into a real
+`LTS_Integration` database, same as the pollers.
 
 ### KPI scoring
 
-Targets are given in days per step, keyed on **export type + loading country + arrival country**.
-Any key left blank means "any", and the most specific matching row wins, so a broad fallback can
-sit underneath country-specific numbers. Targets are versioned by effective date and read as of
-the shipment's loading date, so revising a KPI does not re-score journeys that already happened.
+Seven legs, `LoadingToCustomsClearance → CustomsToDeparture → InternationalTransportation →
+CountryCustomsClearance → LeadTimeToXdock → Xdock → LocalTransportation`, fixed in
+`IntegrationKpiCatalog`. The first five run entirely on the shipment; `Xdock` starts on the
+shipment (Crossdock Arrival) but ends on a transfer (Crossdock Departure) and is scored once per
+transfer; `LocalTransportation` (Crossdock Departure → Store Arrival) runs entirely on the
+transfer. A shipment's `Performance` is the worst of its own five legs plus every transfer's Xdock
+leg; a transfer's own `Performance` is the worst of its Xdock and Local Transportation legs.
 
-`KpiEvaluator` is pure and fully unit-tested. A finished step is **On Time** or **Late**; a step
-still running is **On Track**, **At Risk** (past 80% of target) or **Overdue**. A shipment's
-Performance column is its worst step.
+Targets (`LTS_KpiTargets`) are given in days per leg, keyed on country + the four gating
+attributes; any attribute left blank means "any," and the most specific matching row wins. A
+shipment missing any of the four gating attributes scores `MissingAttributes` outright rather than
+guessing a target for it.
 
-Day counting goes through `IDayCounter` — calendar days today, with a working-day counter able to
-be dropped in per country later.
+`IntegrationKpiEvaluator`/`IntegrationKpiResolver` are pure and fully unit-tested: a finished leg is
+**On Time** or **Late**; a running leg is **On Track**, **At Risk** or **Overdue**.
+`IntegrationKpiCalculator` is the EF-touching layer that computes and persists each leg's deadline
+and rolls the results up into the stored `Performance` columns. On the Shipments and Transfers
+grids, any date past its own leg's deadline gets a small warning icon inline, so a late step is
+visible without opening KPI columns.
 
-### The integration layer
+### Delay alert mails
 
-```
-[Poller]  → adapter.FetchAsync(cursor)         one adapter per country system
-          → canonical DTOs                     the only shape the rest of LTS knows
-          → StatusMapping: raw code → milestone   admin-editable, no release needed
-          → MilestoneService.ApplyAsync           audits, recalculates, saves
-```
-
-LTS **pulls** on a schedule, so no country has to open a route inwards or change its systems.
-Onboarding a country is: add the country and its master data, write one adapter class, add its
-integration source and status mappings. Nothing in the domain, the KPI engine or the UI changes.
-
-`MockJsonAdapter` ships with the app and reads sample payloads from `src/LTS.Web/SampleData`, so
-the whole path — poll, map, apply, audit, monitor — runs before any real endpoint exists.
-`HttpJsonAdapter` is the base class real country adapters subclass.
-
-Unmapped codes are not silently dropped: they are counted, surfaced on the integration monitor,
-and mappable in one click.
+Two scheduled, Excel-attached daily mails per country, configured independently in **Admin > Delay
+Alerts**: a **Shipment Delay Alert** (shipments not yet at Crossdock Arrival that are Late/Overdue
+on their five shipment-only legs) and a **Transfer Delay Alert** (transfers not yet at their store
+that are Late/Overdue on Xdock or Local Transportation). Each report is rebuilt fresh from raw
+dates and current KPI targets at send time — never read off the stored `Performance` columns —
+because a running leg can silently tip into Overdue purely from time passing. No delayed rows means
+no mail that day. Each config also has a manual "Send Now" that doesn't consume the day's scheduled
+slot, for checking a report before relying on the schedule.
 
 ### Access control
 
-Three layers, all enforced server-side:
-
 1. **Country** — which countries an account may enter at all.
 2. **Page** — view/edit per page, *per country*, so someone can edit in Türkiye and only read in Poland.
-3. **Row** — brokers and logistics companies see only shipments where they are the assigned partner.
-   Applied in the query layer (`ShipmentScope`), so no page, export or deep link can escape it.
-4. **Field** — on Shipment Details, a broker sees only the customs dates and a carrier only its
-   own; store pre-acceptance and acceptance come from the in-house service and are never editable.
-
-Accounts are created by an administrator with a generated one-time password — there is no
-self-registration, because external partners are onboarded deliberately.
+3. **Row** — brokers and logistics companies see only shipments where they are the assigned
+   partner, matched by company name against `LTS_Shipments.BrokerCompany`/`LogisticsCompany` in the
+   query layer — so no page, export or deep link can escape it.
+4. **Field** — on Shipment Details and the Date Upload template, a broker sees only the customs
+   dates and a carrier only its own; store pre-acceptance and acceptance are never editable by
+   either. Grids show every date read-only regardless of ownership, since tracking needs the full
+   picture.
 
 ### Auditing
 
-Every date change is written to `MilestoneAudit` with its old value, new value, source
-(manual / Excel / integration / in-house) and who made it. When an integration overwrites
-something a person typed, the typed value survives in the log — and a source can be configured to
-defer to manual entry instead, in which case the incoming value is still recorded.
+Every date change on `LTS_Integration` is written to `LTS_MilestoneAudit` with its old value, new
+value, source (manual / Excel / feed / in-house service) and who made it — visible per country in
+**Admin > Audit Log**, itself subject to the same partner-scoped row filtering as the tracking
+grids. When a feed overwrites something a person typed, the typed value survives in the log.
 
 ---
 
@@ -129,10 +172,16 @@ defer to manual entry instead, in which case the incoming value is still recorde
 
 | Page | What it does |
 |---|---|
-| Country chooser | Offered after sign-in; the country then lives in every route |
-| Shipments | All seven attributes, every date to crossdock arrival, counts, status, performance |
-| Transfers | The store legs: transfer no, receiver, status, performance, boxes/items, the five store dates |
+| Country chooser | Landing page after sign-in; the country then lives in every route |
+| Shipments | The seven attributes, every date to crossdock arrival, status, performance, optional KPI columns |
+| Transfers | The store legs: transfer no, receiver, status, performance, boxes/items, the store dates |
 | Shipments On The Way | Dashboard of everything short of a store arrival — where, how late, whose |
-| Shipment Details | Date entry, showing only the fields the account owns |
-| Date Upload | Excel bulk entry: template → validate → preview → commit → error report |
-| Admin | Users, countries, master data, KPI targets (+ Excel), integrations, status mappings, run monitor, audit log |
+| Shipment Details | Date entry, showing only the fields the account owns, writing to `LTS_Integration` |
+| Date Upload | Excel bulk entry: template → validate → preview → commit → error report (still writes to the old database) |
+| Admin > Users | Create/manage accounts and their per-country, per-page permissions |
+| Admin > Countries | The countries LTS operates in, and the customer code that ties them to feed data |
+| Admin > Master Data | Shared lookup tables (customs points, export types, transport types, …) |
+| Admin > KPI Targets | Target days per KPI leg, per country, optionally scoped to specific attribute values |
+| Admin > Delay Alerts | Per-country configuration for the two delay alert mails, plus manual "Send Now" |
+| Admin > Integrations | The old per-country adapter poller and its status mappings (legacy, old database) |
+| Admin > Audit Log | Every milestone date change, old/new value, source and author |
