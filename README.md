@@ -9,17 +9,17 @@ transfer continues: **crossdock departure → store arrival → store pre-accept
 acceptance**. LTS tracks both halves, scores every step against a KPI target, and lets logistics
 companies and brokers enter their own dates without seeing each other's.
 
-The app has migrated onto **`LTS_Integration`**, an external SQL Server database owned by the
-company's own systems — every live page now reads and writes it. Data arrives on `LTS_Integration`
-either through scheduled feed polls from the company's internal APIs, or typed in directly through
+The app runs entirely on **`LTS_Integration`**, an external SQL Server database owned by the
+company's own systems — every page reads and writes it, and nothing else. Data arrives either
+through scheduled feed polls from the company's internal APIs, or typed in directly through
 Shipment Details or bulk Excel upload — the pages and KPI engine don't care which.
 
 ---
 
 ## Running it
 
-Requires the **.NET 9 SDK**, and access to both a **SQL Server LocalDB** instance (the app's
-original database, `Lts`) and the external **`LTS_Integration`** SQL Server database.
+Requires the **.NET 9 SDK** and access to the external **`LTS_Integration`** SQL Server database
+(connection string `LtsIntegration`) — there is no local database to set up.
 
 ```bash
 dotnet build
@@ -31,13 +31,11 @@ Sign-in accounts are created by an administrator — there is no self-registrati
 if no admin account exists yet, one is bootstrapped from `Lts:Admin` in `appsettings.json`
 (default `admin@lts.local` / `ChangeMe!2026`, forced password change at first sign-in). Every
 other account is created from **Admin > Users** with a generated one-time password shown once.
-Sign-in itself is checked against `LTS_Integration`, not the old database.
 
 **Settings** live under `Lts` in `appsettings.json`:
 
 | Key | Purpose |
 |---|---|
-| `ApplyMigrationsOnStartup`, `SeedDemoData` | Apply EF migrations / seed demo data into the **old** database only (see caveat below) |
 | `Admin` | The bootstrap administrator's email, name and initial password |
 | `ShipmentFeed` | Poll interval, base URL and secret name for the shipment-header feed |
 | `ExportAttributeFeed` | Poll interval, base URL and secret name for the attribute-backfill feed |
@@ -47,13 +45,6 @@ Sign-in itself is checked against `LTS_Integration`, not the old database.
 
 Feed and mail credentials are never stored in the database or in `appsettings.json` — each is read
 at runtime from `Integration:Secrets:{SecretName}` (e.g. via `dotnet user-secrets` locally).
-
-**Known gap:** `SeedDemoData: true` seeds working demo logins (`logistics@lts.local`,
-`carrier@lts.local`, `broker@lts.local`, password `Demo!Pass2026`) plus a full shipment dataset —
-but the shipment data lands in the **old** database, which the live Shipments/Transfers/On The
-Way/Shipment Details/Audit Log pages no longer read. Demo logins are therefore useful for
-exercising the permission model and page shell, not for seeing realistic shipment data — there is
-currently no seeder for `LTS_Integration` itself.
 
 ---
 
@@ -69,28 +60,27 @@ tools/
 └─ ShipmentFeedSimulator  standalone app for running real feed payloads through the real
                           standardize+upsert pipeline by hand, against a real LTS_Integration DB
 tests/
-└─ LTS.Tests           110 tests over KPI scoring, permissions, tracking, Excel import and the feeds
+└─ LTS.Tests           72 tests over KPI scoring, permissions, tracking, Excel import and the feeds
 ```
 
-### Two databases, one now retired
+### One database
 
-- **`LTS_Integration`** (connection string `LtsIntegration`) — the live database. Its schema is
-  managed by hand (never migrated by EF); `LtsIntegrationDbContext` only ever maps tables that
-  already exist. Every live page — Shipments, Transfers, On The Way, Shipment Details, Date Upload,
-  KPI Targets, Delay Alerts, the Audit Log — reads and writes here through a parallel set of
-  `Integration`-prefixed services (`IntegrationShipmentQueryService`, `IntegrationMilestoneService`,
-  `IntegrationKpiAdminService`, `IntegrationAuditQueryService`, …).
-- **`Lts`** (the app's original LocalDB, EF-migrated) — no live page reads or writes it anymore.
-  The old, generic per-country adapter/poller system it once backed (admin-editable status
-  mappings, a run monitor) was retired outright rather than migrated: it was superseded in
-  substance by the concrete `ShipmentFeed`/`ExportAttributeFeed` pollers below, which talk to the
-  one real API directly instead of through a pluggable-adapter abstraction designed before that API
-  was known. `SeedDemoData: true` still writes a demo dataset here (see the caveat below), but
-  nothing reads it back.
+`LTS_Integration` (connection string `LtsIntegration`) is the only database — there was originally
+a second, app-owned LocalDB (`Lts`) from before this migration, backing an early, generic
+per-country adapter/poller system (admin-editable status mappings, a run monitor) and a demo-data
+seeder. Both were retired outright rather than migrated: the adapter system was superseded in
+substance by the concrete `ShipmentFeed`/`ExportAttributeFeed` pollers below, which talk to the one
+real API directly instead of through a pluggable-adapter abstraction designed before that API was
+known, and the last of the code still touching that old database was deleted once nothing live
+depended on it anymore. `LtsIntegrationDbContext`'s schema is managed by hand (never migrated by
+EF) — it only ever maps tables that already exist. Every page reads and writes it through a set of
+services named `Integration*` (`IntegrationShipmentQueryService`, `IntegrationMilestoneService`,
+`IntegrationKpiAdminService`, `IntegrationAuditQueryService`, …) — a naming leftover from when a
+non-`Integration`-prefixed counterpart of each existed side by side with the old database; none do
+anymore, but the names stuck.
 
-Both sides share one vocabulary: `MilestoneCatalog` (12 milestones — 7 shipment-scope, 5
-transfer-scope) and `MilestoneType` — the live writer is `IntegrationMilestoneService`, but the
-same catalog and types are what the whole app, old and new alike, means by a "milestone."
+`MilestoneCatalog` (12 milestones — 7 shipment-scope, 5 transfer-scope) and `MilestoneType` are the
+one vocabulary the whole app uses for a "milestone," written by `IntegrationMilestoneService`.
 
 ### How shipments get into `LTS_Integration`
 
