@@ -101,8 +101,10 @@ has to open a route inwards:
   configured customer code, calls `GetInvoiceListByCustomerCode` for shipment headers and the six
   attribute codes, then `GetInvoiceDetailByInvoiceNumber` per shipment for its boxes/stores.
   Standardizes raw codes against LTS's own lookup tables and upserts `LTS_Shipments` /
-  `LTS_ShipmentTransfers` / `LTS_Boxes`. Every raw response is staged (append-only) before being
-  applied, and one bad shipment never stops the rest of the batch.
+  `LTS_ShipmentTransfers` / `LTS_Boxes`. A transfer whose destination store isn't in `LTS_Stores`
+  yet gets a bare placeholder row created for it (just the store's CurrAccCode — see "Stores"
+  below) rather than being left unresolvable. Every raw response is staged (append-only) before
+  being applied, and one bad shipment never stops the rest of the batch.
 - **Export Attribute Feed** (`ExportAttributeFeedPoller`, default every 10 minutes) — finds
   shipments missing any of the four attributes that gate KPI scoring (Export Type, Loading Point,
   Arrival Customs, Transport Type), fetches each one's detail via `GetLTSExportFileDetail`, applies
@@ -134,6 +136,18 @@ guessing a target for it.
 and rolls the results up into the stored `Performance` columns. On the Shipments and Transfers
 grids, any date past its own leg's deadline gets a small warning icon inline, so a late step is
 visible without opening KPI columns.
+
+### Stores
+
+`LTS_Stores` (`StoreCode`, `StoreCurrAccCode`, `StoreDescription`, `City`, per country) is the one
+piece of master data the shipment feed can write to as well as read: the feed only ever knows a
+store by its **CurrAccCode** (the field `GetInvoiceDetailByInvoiceNumber` calls "StoreCode" is
+actually this), never by the `StoreCode`/`StoreDescription` Master Data assigns. The Transfers grid
+resolves each transfer's store by that CurrAccCode and shows "Store Code - Description" once an
+admin has filled those in via **Admin > Master Data > Stores**, falling back to the raw CurrAccCode
+until then. `City` is captured but not read by anything yet — it's there for scoping the Local
+Transportation KPI leg per store/city, which hasn't been built (targets are still scored only by
+country + the four shipment attributes, the same as every other leg).
 
 ### Delay alert mails
 
@@ -179,7 +193,7 @@ grids. When a feed overwrites something a person typed, the typed value survives
 | Date Upload | Excel bulk entry: template → validate → preview → commit → error report, writing to `LTS_Integration` |
 | Admin > Users | Create/manage accounts and their per-country, per-page permissions |
 | Admin > Countries | The countries LTS operates in, and the customer code that ties them to feed data |
-| Admin > Master Data | Shared lookup tables (customs points, export types, transport types, …) |
+| Admin > Master Data | Shared lookup tables (customs points, export types, transport types, …), plus per-country Stores |
 | Admin > KPI Targets | Target days per KPI leg, per country, optionally scoped to specific attribute values |
 | Admin > Delay Alerts | Per-country configuration for the two delay alert mails, plus manual "Send Now" |
 | Admin > Audit Log | Every milestone date change, old/new value, source and author |
