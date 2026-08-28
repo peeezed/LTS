@@ -287,14 +287,15 @@ public sealed class ShipmentFeedRunner(
 
         foreach (var transferFields in fields.Transfers)
         {
-            await UpsertTransferAsync(db, fields.ReferenceNo, transferFields, seedStatus, country?.Id, storeCache, cancellationToken);
+            await UpsertTransferAsync(db, fields.ReferenceNo, transferFields, seedStatus,
+                fields.InvoiceNo, fields.InvoiceDate, country?.Id, storeCache, cancellationToken);
         }
     }
 
     private static async Task UpsertTransferAsync(
         LtsIntegrationDbContext db, string referenceNo, StandardizedTransferFields fields,
-        TrackingStatus seedStatus, int? countryId, Dictionary<string, LtsIntegrationStore> storeCache,
-        CancellationToken cancellationToken)
+        TrackingStatus seedStatus, string invoiceNo, DateOnly invoiceDate, int? countryId,
+        Dictionary<string, LtsIntegrationStore> storeCache, CancellationToken cancellationToken)
     {
         var transfer = await db.ShipmentTransfers.FirstOrDefaultAsync(
             t => t.ReferenceNo == referenceNo && t.TransferNo == fields.TransferNo, cancellationToken);
@@ -327,6 +328,13 @@ public sealed class ShipmentFeedRunner(
         transfer.ReceivingStoreCode = fields.ReceivingStoreCode;
         transfer.TotalBoxes = fields.TotalBoxes;
         transfer.TotalItems = fields.TotalItems;
+
+        // InvoiceNo/DateCreated aren't per-transfer data from this feed - every transfer of a
+        // shipment shares its parent's invoice - but they're real columns on this table (read as a
+        // fallback-to-shipment pair by IntegrationShipmentQueryService, for a transfer that might
+        // one day have its own), so they're kept in sync rather than left null forever.
+        transfer.InvoiceNo = invoiceNo;
+        transfer.DateCreated = invoiceDate;
 
         if (countryId is { } id && !string.IsNullOrWhiteSpace(fields.ReceivingStoreCode))
         {
