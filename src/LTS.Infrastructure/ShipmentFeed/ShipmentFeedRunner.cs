@@ -240,6 +240,12 @@ public sealed class ShipmentFeedRunner(
             };
 
             db.Shipments.Add(shipment);
+
+            // Created alongside the shipment, not lazily on its first milestone write: KPI
+            // deadline computation (IntegrationKpiCalculator) and any future automated system
+            // writing dates need a row to read/update from the moment the shipment exists, not
+            // just from the moment someone first types a date into it.
+            db.ShipmentDates.Add(new LtsIntegrationShipmentDate { ReferenceNo = fields.ReferenceNo });
         }
         else
         {
@@ -295,6 +301,11 @@ public sealed class ShipmentFeedRunner(
             };
 
             db.ShipmentTransfers.Add(transfer);
+
+            // Same reasoning as the shipment's own date row above: created eagerly so a transfer
+            // that has never had a milestone entered still has somewhere for a KPI deadline (or a
+            // future automated write) to land, instead of only appearing on its first date write.
+            db.ShipmentTransferDates.Add(new LtsIntegrationShipmentTransferDate { TransferNo = fields.TransferNo });
         }
 
         // Same insert-only rule as the shipment: CurrentStatus/Performance are never touched on
