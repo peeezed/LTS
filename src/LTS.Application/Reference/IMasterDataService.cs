@@ -1,8 +1,4 @@
-using LTS.Domain.Enums;
-
 namespace LTS.Application.Reference;
-
-public sealed record CountryInput(int? Id, string Code, string Name, bool IsActive, bool UseWorkingDays);
 
 /// <summary>
 /// An LTS_Integration country. Id is in the app-wide offset id space (see IntegrationCountryId);
@@ -11,12 +7,6 @@ public sealed record CountryInput(int? Id, string Code, string Name, bool IsActi
 /// </summary>
 public sealed record IntegrationCountryInput(int? Id, string Code, string Name, bool IsActive, string? CustomerCode);
 
-public sealed record LookupInput(int? Id, LookupKind Kind, int? CountryId, string Code, string Name, int SortOrder, bool IsActive);
-
-public sealed record PartnerInput(int? Id, PartnerType Type, string Code, string Name, bool IsActive);
-
-public sealed record LoadingPointInput(int? Id, string Code, string Name, string CountryCode, bool IsActive);
-
 public sealed record StoreInput(
     int? Id, int CountryId, string Code, string? CurrAccCode, string Description, string? City, bool IsActive);
 
@@ -24,21 +14,13 @@ public sealed record StoreInput(
 public sealed record AttributeInput(int? Id, string Code, string Description);
 
 /// <summary>
-/// Maintains the reference data a country needs before shipments can be imported: its customs
-/// offices, export and transport types, loading points, partners and stores. Onboarding a
-/// country is filling these in, not writing code.
+/// Maintains LTS_Integration's own reference data: countries, the shared shipment attribute
+/// lookup tables, and per-country stores. Onboarding a country is filling these in, not writing
+/// code.
 /// </summary>
 public interface IMasterDataService
 {
-    Task<int> SaveCountryAsync(CountryInput input, CancellationToken cancellationToken = default);
-
     Task<int> SaveIntegrationCountryAsync(IntegrationCountryInput input, CancellationToken cancellationToken = default);
-
-    Task<int> SaveLookupAsync(LookupInput input, CancellationToken cancellationToken = default);
-
-    Task<int> SavePartnerAsync(PartnerInput input, CancellationToken cancellationToken = default);
-
-    Task<int> SaveLoadingPointAsync(LoadingPointInput input, CancellationToken cancellationToken = default);
 
     Task<int> SaveStoreAsync(StoreInput input, CancellationToken cancellationToken = default);
 

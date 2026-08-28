@@ -5,18 +5,6 @@ public sealed class LtsOptions
 {
     public const string SectionName = "Lts";
 
-    /// <summary>
-    /// Applies pending migrations at startup. Convenient for a single-instance deployment;
-    /// turn off where migrations are run as a separate release step.
-    /// </summary>
-    public bool ApplyMigrationsOnStartup { get; set; } = true;
-
-    /// <summary>
-    /// Generates the demo country, reference data and shipments. Development only — it is what
-    /// makes the grids, KPIs and dashboard testable before a real integration exists.
-    /// </summary>
-    public bool SeedDemoData { get; set; }
-
     public AdminSeedOptions Admin { get; set; } = new();
 
     public ShipmentFeedOptions ShipmentFeed { get; set; } = new();

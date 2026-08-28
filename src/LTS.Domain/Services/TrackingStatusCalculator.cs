@@ -1,4 +1,3 @@
-using LTS.Domain.Entities;
 using LTS.Domain.Enums;
 using LTS.Domain.Milestones;
 
@@ -10,49 +9,15 @@ namespace LTS.Domain.Services;
 /// </summary>
 public static class TrackingStatusCalculator
 {
-    /// <summary>The furthest status a shipment has reached, and the date it reached it.</summary>
-    public static (TrackingStatus Status, DateOnly? Date) ForShipment(Shipment shipment)
-    {
-        ArgumentNullException.ThrowIfNull(shipment);
-
-        return ForShipment(shipment.GetMilestoneDate);
-    }
-
-    /// <summary>
-    /// The furthest status reached by any shipment-scope milestone with a date, from a raw date
-    /// lookup rather than a domain <see cref="Shipment"/> - for data sources that carry the same
-    /// milestone dates but not the full domain model, such as LTS_Integration.
-    /// </summary>
+    /// <summary>The furthest status reached by any shipment-scope milestone with a date.</summary>
     public static (TrackingStatus Status, DateOnly? Date) ForShipment(Func<MilestoneType, DateOnly?> dateOf) =>
         Furthest(MilestoneCatalog.ShipmentMilestones, dateOf, TrackingStatus.Created, null);
 
     /// <summary>
-    /// The furthest status a transfer has reached. Before it leaves the crossdock a transfer
-    /// has no dates of its own, so it inherits its shipment's status — which is what the
-    /// Transfers grid shows.
-    /// </summary>
-    public static (TrackingStatus Status, DateOnly? Date) ForTransfer(Transfer transfer, Shipment? shipment = null)
-    {
-        ArgumentNullException.ThrowIfNull(transfer);
-
-        shipment ??= transfer.Shipment;
-        var (inherited, inheritedDate) = shipment is null
-            ? (TrackingStatus.Created, (DateOnly?)null)
-            : ForShipment(shipment);
-
-        return Furthest(
-            MilestoneCatalog.TransferMilestones,
-            transfer.GetMilestoneDate,
-            inherited,
-            inheritedDate);
-    }
-
-    /// <summary>
-    /// The furthest status a transfer has reached, from a raw date lookup rather than a domain
-    /// <see cref="Transfer"/> - for data sources that carry the same transfer milestone dates but
-    /// not the full domain model, such as LTS_Integration. A transfer with none of its own
-    /// milestone dates set simply shows its shipment's status - see <see cref="ForShipment(Func{MilestoneType,DateOnly?})"/>
-    /// for the shipment-side equivalent this is meant to be seeded from.
+    /// The furthest status a transfer has reached. Before it leaves the crossdock a transfer has
+    /// no dates of its own, so it inherits its shipment's status - see
+    /// <see cref="ForShipment(Func{MilestoneType,DateOnly?})"/> for the shipment-side equivalent
+    /// this is meant to be seeded from.
     /// </summary>
     public static (TrackingStatus Status, DateOnly? Date) ForTransfer(
         Func<MilestoneType, DateOnly?> dateOf, TrackingStatus shipmentStatus) =>

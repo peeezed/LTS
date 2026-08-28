@@ -10,8 +10,8 @@ using Microsoft.Extensions.Options;
 namespace LTS.Infrastructure.Persistence;
 
 /// <summary>
-/// Brings the database up to date at startup and makes sure there is always someone who can
-/// log in — an empty LTS with no administrator would need a manual SQL insert to become usable.
+/// Makes sure there is always someone who can log in at startup — an empty LTS_Integration with
+/// no administrator would need a manual SQL insert to become usable.
 /// </summary>
 public static class DatabaseInitializer
 {
@@ -22,20 +22,8 @@ public static class DatabaseInitializer
 
         var options = provider.GetRequiredService<IOptions<LtsOptions>>().Value;
         var logger = provider.GetRequiredService<ILoggerFactory>().CreateLogger("LTS.Startup");
-        var db = provider.GetRequiredService<LtsDbContext>();
-
-        if (options.ApplyMigrationsOnStartup)
-        {
-            logger.LogInformation("Applying database migrations...");
-            await db.Database.MigrateAsync();
-        }
 
         await SeedAdministratorAsync(provider, options, logger);
-
-        if (options.SeedDemoData)
-        {
-            await DemoDataSeeder.SeedAsync(provider, logger);
-        }
     }
 
     private static async Task SeedAdministratorAsync(

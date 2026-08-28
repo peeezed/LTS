@@ -14,12 +14,13 @@ public class AppUser : IdentityUser<Guid>
     public required UserType UserType { get; set; }
 
     /// <summary>
-    /// The old database's Partner this account was linked to. Superseded by
+    /// The old database's Partner id this account was linked to. Superseded by
     /// <see cref="SupplierCompanyCode"/> for shipment scoping - kept only because existing
-    /// accounts still carry a value here; new and edited accounts no longer set it.
+    /// accounts still carry a value here; new and edited accounts no longer set it. The old
+    /// Partner entity itself is gone along with the rest of the old database, so this is a bare
+    /// int with no navigation.
     /// </summary>
     public int? PartnerId { get; set; }
-    public Partner? Partner { get; set; }
 
     /// <summary>
     /// The Code of a row in LTS_LogisticsCompanies (LogisticsCompany accounts) or LTS_Brokers
@@ -51,7 +52,6 @@ public class UserCountryAccess
     public AppUser? User { get; set; }
 
     public required int CountryId { get; set; }
-    public Country? Country { get; set; }
 }
 
 /// <summary>
@@ -67,7 +67,6 @@ public class UserPagePermission
 
     /// <summary>Null for pages that are not country-scoped, such as user administration.</summary>
     public int? CountryId { get; set; }
-    public Country? Country { get; set; }
 
     /// <summary>A value from <see cref="Security.PageKeys"/>.</summary>
     public required string PageKey { get; set; }

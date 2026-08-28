@@ -30,15 +30,8 @@ public static class DependencyInjection
     /// </summary>
     public static IServiceCollection AddLtsInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
-        var connectionString = configuration.GetConnectionString("Lts")
-            ?? throw new InvalidOperationException("Connection string 'Lts' is not configured.");
-
-        services.AddDbContext<LtsDbContext>(options => options.UseSqlServer(
-            connectionString,
-            sql => sql.MigrationsAssembly(typeof(LtsDbContext).Assembly.FullName)));
-
-        // The external database the app is being migrated onto, table by table. Its schema is
-        // managed by hand, so this is never given a migrations assembly.
+        // The external database the app runs on. Its schema is managed by hand, so this is never
+        // given a migrations assembly.
         var integrationConnectionString = configuration.GetConnectionString("LtsIntegration")
             ?? throw new InvalidOperationException("Connection string 'LtsIntegration' is not configured.");
 
@@ -86,27 +79,22 @@ public static class DependencyInjection
         services.AddSingleton<IClock, SystemClock>();
 
         // Replaced in the web host by the signed-in user; this default is what background work
-        // such as the integration poller runs as.
+        // such as the feed pollers run as.
         services.AddScoped<ICurrentUser, SystemCurrentUser>();
 
         services.AddScoped<IPermissionService, PermissionService>();
         services.AddScoped<IReferenceDataService, ReferenceDataService>();
-        // Sourced from LTS_Integration, not the old database - see IntegrationShipmentQueryService.
         services.AddScoped<IShipmentQueryService, IntegrationShipmentQueryService>();
-        // The Shipment Details page's and the Excel upload's shared writer, sourced from
-        // LTS_Integration.
+        // The Shipment Details page's and the Excel upload's shared writer.
         services.AddScoped<IIntegrationMilestoneService, IntegrationMilestoneService>();
-        services.AddScoped<IKpiTargetProvider, KpiTargetProvider>();
 
         // Pure application services with no database of their own.
         services.AddScoped<IDateImportService, DateImportService>();
 
         // Administration.
-        services.AddScoped<IKpiAdminService, KpiAdminService>();
         services.AddScoped<IIntegrationKpiAdminService, IntegrationKpiAdminService>();
         services.AddScoped<IUserAdminService, UserAdminService>();
         services.AddScoped<IMasterDataService, MasterDataService>();
-        services.AddScoped<IAuditQueryService, AuditQueryService>();
         services.AddScoped<IIntegrationAuditQueryService, IntegrationAuditQueryService>();
 
         services.AddHttpClient();

@@ -1,5 +1,4 @@
 using LTS.Application.Security;
-using LTS.Domain.Kpi;
 
 namespace LTS.Application.Tracking;
 
@@ -24,16 +23,4 @@ public interface IIntegrationMilestoneService
     /// referenceNo.
     /// </summary>
     Task RecomputeKpiForShipmentAsync(string referenceNo, CancellationToken cancellationToken = default);
-}
-
-/// <summary>
-/// Supplies the KPI targets used to score shipments. Cached, because the target list is small
-/// and read on every grid render, and invalidated whenever an admin edits or imports targets.
-/// </summary>
-public interface IKpiTargetProvider
-{
-    Task<KpiTargetResolver> GetResolverAsync(CancellationToken cancellationToken = default);
-
-    /// <summary>Drops the cached targets after an edit or Excel import.</summary>
-    void Invalidate();
 }

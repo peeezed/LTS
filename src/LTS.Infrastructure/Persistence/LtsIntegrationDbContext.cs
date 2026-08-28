@@ -76,11 +76,7 @@ public class LtsIntegrationDbContext(DbContextOptions<LtsIntegrationDbContext> o
             entity.Property(s => s.City).HasColumnName("City").HasMaxLength(100);
         });
 
-        // AppUser's Partner and UserCountryAccess/UserPagePermission's Country navigations point
-        // at entities this context does not (yet) map - LTS_Integration has no Partners table,
-        // and LTS_Countries is a different shape than LTS.Domain.Entities.Country. The ids
-        // (PartnerId, CountryId) are still plain columns; only the navigation is unavailable here.
-        // CountryAccess/PagePermissions are ignored too: callers query the DbSets directly
+        // AppUser.CountryAccess/PagePermissions are ignored: callers query the DbSets directly
         // (db.UserCountryAccess.Where(a => a.UserId == id)), never through the AppUser
         // navigation, so this avoids EF discovering two different relationships to the same
         // tables (the explicit HasOne below, and an auto-discovered one from these collections).
@@ -92,7 +88,6 @@ public class LtsIntegrationDbContext(DbContextOptions<LtsIntegrationDbContext> o
             // of storing enums as readable text - EF's default is int, so this must be explicit.
             entity.Property(u => u.UserType).HasConversion<string>().HasMaxLength(50);
             entity.Property(u => u.SupplierCompanyCode).HasColumnName("SupplierCompanyCode").HasMaxLength(50);
-            entity.Ignore(u => u.Partner);
             entity.Ignore(u => u.CountryAccess);
             entity.Ignore(u => u.PagePermissions);
         });
@@ -132,14 +127,12 @@ public class LtsIntegrationDbContext(DbContextOptions<LtsIntegrationDbContext> o
         {
             entity.ToTable("LTS_UserCountryAccess");
             entity.HasKey(a => new { a.UserId, a.CountryId });
-            entity.Ignore(a => a.Country);
         });
 
         builder.Entity<UserPagePermission>(entity =>
         {
             entity.ToTable("LTS_UserPagePermissions");
             entity.Property(p => p.Id).HasColumnName("ID");
-            entity.Ignore(p => p.Country);
         });
 
         // The staging tables an integration writes a shipment into before the LTS frontend reads
