@@ -295,6 +295,15 @@ public sealed class IntegrationShipmentQueryService(
             .Where(b => transferNos.Contains(b.TransferNo))
             .ToListAsync(cancellationToken);
 
+        // Keyed by CurrAccCode, not Code: that's the only thing a transfer's own
+        // ReceivingStoreCode ever holds (see LtsIntegrationStore's doc comment). A code with no
+        // matching row shouldn't happen once ShipmentFeedRunner.EnsureStoreAsync has run, but
+        // GetValueOrDefault below still degrades gracefully if one somehow does.
+        var rawCountryId = IntegrationCountryId.ToRawId(countryId);
+        var stores = await ToDictionaryTolerantAsync(
+            db.Stores.AsNoTracking().Where(s => s.CountryId == rawCountryId && s.CurrAccCode != null),
+            s => s.CurrAccCode!, s => s, cancellationToken);
+
         // The shipment's own dates, not its (possibly already transfer-aggregated)
         // LTS_Shipments.CurrentStatus - see ShipmentStatusAggregator.MilestoneStatus.
         var shipmentReferences = page.Select(x => x.Shipment.ReferenceNo).Distinct().ToList();
@@ -310,6 +319,7 @@ public sealed class IntegrationShipmentQueryService(
             var storeAcceptance = BoxMilestone(transferBoxes, b => b.AcceptanceDate);
             var milestoneStatus = ShipmentStatusAggregator.MilestoneStatus(
                 shipmentDates.GetValueOrDefault(x.Shipment.ReferenceNo));
+            var store = x.Transfer.ReceivingStoreCode is { } currAccCode ? stores.GetValueOrDefault(currAccCode) : null;
 
             return new TransferRow
             {
@@ -319,8 +329,10 @@ public sealed class IntegrationShipmentQueryService(
                 ReferenceNo = x.Shipment.ReferenceNo,
                 InvoiceNo = x.Transfer.InvoiceNo ?? x.Shipment.InvoiceNo,
                 DateCreated = x.Transfer.DateCreated ?? x.Shipment.InvoiceDate,
-                StoreCode = x.Transfer.ReceivingStoreCode,
-                StoreName = null,
+                // Falls back to the raw CurrAccCode when the store hasn't been described in
+                // Master Data yet (Code is still null), so the grid shows something either way.
+                StoreCode = store?.Code ?? x.Transfer.ReceivingStoreCode,
+                StoreName = store?.Description,
                 CurrentStatus = ShipmentStatusAggregator.TransferStatus(milestoneStatus,
                     d?.CrossdockDepartureDate, d?.PlannedStoreArrivalDate, d?.StoreArrivalDate,
                     storePreAcceptance, storeAcceptance),

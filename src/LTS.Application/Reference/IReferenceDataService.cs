@@ -17,10 +17,14 @@ public sealed record LoadingPointDto(int Id, string Code, string Name, string Co
     public string Display => $"{Name} ({CountryCode})";
 }
 
+/// <summary>
+/// Code/Description are nullable: a store the shipment feed created as a failsafe (see
+/// ShipmentFeedRunner.EnsureStoreAsync) only has a CurrAccCode until an admin fills the rest in.
+/// </summary>
 public sealed record StoreDto(
-    int Id, string Code, string? CurrAccCode, string Description, string? City, int CountryId, bool IsActive)
+    int Id, string? Code, string? CurrAccCode, string? Description, string? City, int CountryId, bool IsActive)
 {
-    public string Display => $"{Code} - {Description}";
+    public string Display => Code is null ? $"Unmapped ({CurrAccCode})" : $"{Code} - {Description}";
 }
 
 /// <summary>Which of LTS_Integration's shipment attribute lookup tables to read or write.</summary>

@@ -166,9 +166,9 @@ else
     private void EditStore(StoreDto? store)
     {
         _editingStore = store ?? new StoreDto(0, string.Empty, null, string.Empty, null, CountryId, true);
-        _storeCode = _editingStore.Code;
+        _storeCode = _editingStore.Code ?? string.Empty;
         _storeCurrAccCode = _editingStore.CurrAccCode;
-        _storeDescription = _editingStore.Description;
+        _storeDescription = _editingStore.Description ?? string.Empty;
         _storeCity = _editingStore.City;
         _storeActive = _editingStore.IsActive;
     }

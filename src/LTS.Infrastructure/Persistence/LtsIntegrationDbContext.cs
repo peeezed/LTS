@@ -70,9 +70,9 @@ public class LtsIntegrationDbContext(DbContextOptions<LtsIntegrationDbContext> o
             entity.ToTable("LTS_Stores");
             entity.HasKey(s => s.Id);
             entity.Property(s => s.Id).HasColumnName("ID");
-            entity.Property(s => s.Code).HasColumnName("StoreCode").HasMaxLength(50).IsRequired();
+            entity.Property(s => s.Code).HasColumnName("StoreCode").HasMaxLength(50);
             entity.Property(s => s.CurrAccCode).HasColumnName("StoreCurrAccCode").HasMaxLength(50);
-            entity.Property(s => s.Description).HasColumnName("StoreDescription").HasMaxLength(200).IsRequired();
+            entity.Property(s => s.Description).HasColumnName("StoreDescription").HasMaxLength(200);
             entity.Property(s => s.City).HasColumnName("City").HasMaxLength(100);
         });
 
@@ -281,14 +281,20 @@ public class LtsIntegrationCountry
 /// six shipment attribute lookup tables, a store code only means something within one country.
 /// City exists for the Local Transportation KPI leg, which a future round will let a target scope
 /// by (see IntegrationKpiCatalog) - not read by anything yet.
+///
+/// CurrAccCode, Code and Description are all nullable because the shipment feed only ever knows
+/// a store by its CurrAccCode (the field GetInvoiceDetailByInvoiceNumber calls "StoreCode" is
+/// actually this value, not our own Code) - see ShipmentFeedRunner.EnsureStoreAsync, which creates
+/// a bare CurrAccCode-only row for a store Master Data hasn't described yet, rather than letting
+/// an unrecognised store block the transfer. An admin fills in Code/Description/City afterward.
 /// </summary>
 public class LtsIntegrationStore
 {
     public int Id { get; set; }
     public required int CountryId { get; set; }
-    public required string Code { get; set; }
+    public string? Code { get; set; }
     public string? CurrAccCode { get; set; }
-    public required string Description { get; set; }
+    public string? Description { get; set; }
     public string? City { get; set; }
     public bool IsActive { get; set; } = true;
 }

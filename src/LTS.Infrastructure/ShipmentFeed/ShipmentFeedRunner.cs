@@ -45,8 +45,9 @@ public sealed class ShipmentFeedRunner(
 
         var lookups = await AttributeCodeLookupLoader.LoadAsync(db, [header], cancellationToken);
         var raw = ShipmentFeedCombiner.Combine(header, detailLines);
+        var storeCache = new Dictionary<string, LtsIntegrationStore>(StringComparer.OrdinalIgnoreCase);
 
-        await UpsertShipmentAsync(db, customerCode, raw, lookups, cancellationToken);
+        await UpsertShipmentAsync(db, customerCode, raw, lookups, storeCache, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
 
         return ShipmentStandardizer.Standardize(raw, lookups);
@@ -122,12 +123,18 @@ public sealed class ShipmentFeedRunner(
 
         var lookups = await AttributeCodeLookupLoader.LoadAsync(db, validEntries, cancellationToken);
 
+        // Shared across every shipment in this poll, keyed by CurrAccCode: two different
+        // shipments in the same run landing at the same still-unmapped store must share one
+        // EnsureStoreAsync insert rather than each querying the DB (which won't see the other's
+        // not-yet-saved Add) and racing duplicate rows into this one unsaved DbContext.
+        var storeCache = new Dictionary<string, LtsIntegrationStore>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var (header, detailLines, stagingRow) in results)
         {
             try
             {
                 var raw = ShipmentFeedCombiner.Combine(header, detailLines);
-                await UpsertShipmentAsync(db, customerCode, raw, lookups, cancellationToken);
+                await UpsertShipmentAsync(db, customerCode, raw, lookups, storeCache, cancellationToken);
 
                 // A detail call that itself failed already left this row Failed, with the real
                 // reason recorded - the header (attribute codes, invoice fields) still landed via
@@ -202,7 +209,8 @@ public sealed class ShipmentFeedRunner(
 
     private async Task UpsertShipmentAsync(
         LtsIntegrationDbContext db, string customerCode, RawShipmentFeedDto record,
-        AttributeCodeLookups lookups, CancellationToken cancellationToken)
+        AttributeCodeLookups lookups, Dictionary<string, LtsIntegrationStore> storeCache,
+        CancellationToken cancellationToken)
     {
         var fields = ShipmentStandardizer.Standardize(record, lookups);
 
@@ -212,6 +220,13 @@ public sealed class ShipmentFeedRunner(
                 customerCode, fields.ReferenceNo, warning);
         }
 
+        // Resolved once per shipment (not just for a new one) - EnsureStoreAsync needs it for
+        // every transfer below, new shipment or not, since a store can arrive unmapped on any poll.
+        var country = await db.Countries.AsNoTracking()
+            .Where(c => c.CustomerCode == customerCode)
+            .Select(c => new { c.Id, c.CountryDescription })
+            .FirstOrDefaultAsync(cancellationToken);
+
         var shipment = await db.Shipments.FirstOrDefaultAsync(s => s.ReferenceNo == fields.ReferenceNo, cancellationToken);
         TrackingStatus seedStatus;
 
@@ -220,15 +235,6 @@ public sealed class ShipmentFeedRunner(
             var (status, currentStatus, performance) = ShipmentFeedDefaults.ForNewShipment();
             seedStatus = status;
 
-            // CustomerCode already tells us the country (it's how a shipment is matched to one at
-            // all - see IntegrationShipmentQueryService), so there's no need to wait for that
-            // service's read-time ArrivalCountry backfill on a shipment created here. That backfill
-            // still runs harmlessly for anything that lands without it some other way.
-            var arrivalCountry = await db.Countries.AsNoTracking()
-                .Where(c => c.CustomerCode == customerCode)
-                .Select(c => c.CountryDescription)
-                .FirstOrDefaultAsync(cancellationToken);
-
             shipment = new LtsIntegrationShipment
             {
                 ReferenceNo = fields.ReferenceNo,
@@ -236,7 +242,11 @@ public sealed class ShipmentFeedRunner(
                 CustomerCode = customerCode,
                 CurrentStatus = currentStatus,
                 Performance = performance,
-                ArrivalCountry = arrivalCountry
+                // CustomerCode already tells us the country (it's how a shipment is matched to one
+                // at all - see IntegrationShipmentQueryService), so there's no need to wait for
+                // that service's read-time ArrivalCountry backfill on a shipment created here. That
+                // backfill still runs harmlessly for anything that lands without it some other way.
+                ArrivalCountry = country?.CountryDescription
             };
 
             db.Shipments.Add(shipment);
@@ -277,13 +287,14 @@ public sealed class ShipmentFeedRunner(
 
         foreach (var transferFields in fields.Transfers)
         {
-            await UpsertTransferAsync(db, fields.ReferenceNo, transferFields, seedStatus, cancellationToken);
+            await UpsertTransferAsync(db, fields.ReferenceNo, transferFields, seedStatus, country?.Id, storeCache, cancellationToken);
         }
     }
 
     private static async Task UpsertTransferAsync(
         LtsIntegrationDbContext db, string referenceNo, StandardizedTransferFields fields,
-        TrackingStatus seedStatus, CancellationToken cancellationToken)
+        TrackingStatus seedStatus, int? countryId, Dictionary<string, LtsIntegrationStore> storeCache,
+        CancellationToken cancellationToken)
     {
         var transfer = await db.ShipmentTransfers.FirstOrDefaultAsync(
             t => t.ReferenceNo == referenceNo && t.TransferNo == fields.TransferNo, cancellationToken);
@@ -310,9 +321,17 @@ public sealed class ShipmentFeedRunner(
 
         // Same insert-only rule as the shipment: CurrentStatus/Performance are never touched on
         // a re-fetch here, so real milestone dates entered since are never regressed.
+        // ReceivingStoreCode is misleadingly named against our own Store model: the feed's own
+        // "StoreCode" field actually carries the store's CurrAccCode (its accounting/ERP code),
+        // not the StoreCode Master Data assigns - see LtsIntegrationStore's own doc comment.
         transfer.ReceivingStoreCode = fields.ReceivingStoreCode;
         transfer.TotalBoxes = fields.TotalBoxes;
         transfer.TotalItems = fields.TotalItems;
+
+        if (countryId is { } id && !string.IsNullOrWhiteSpace(fields.ReceivingStoreCode))
+        {
+            await EnsureStoreAsync(db, id, fields.ReceivingStoreCode, storeCache, cancellationToken);
+        }
 
         foreach (var boxFields in fields.Boxes)
         {
@@ -333,5 +352,34 @@ public sealed class ShipmentFeedRunner(
                 });
             }
         }
+    }
+
+    /// <summary>
+    /// Failsafe for a store the feed references that LTS_Stores doesn't have a row for yet:
+    /// creates one with just the CurrAccCode, leaving StoreCode/StoreDescription/City null for an
+    /// admin to fill in via Master Data - rather than letting an unrecognised store block the
+    /// transfer from being created. <paramref name="cache"/> is shared across the whole poll run
+    /// (see its call sites), since a plain DB query wouldn't see another not-yet-saved insert for
+    /// the same store made earlier in the same run.
+    /// </summary>
+    private static async Task EnsureStoreAsync(
+        LtsIntegrationDbContext db, int countryId, string currAccCode,
+        Dictionary<string, LtsIntegrationStore> cache, CancellationToken cancellationToken)
+    {
+        if (cache.ContainsKey(currAccCode))
+        {
+            return;
+        }
+
+        var store = await db.Stores.FirstOrDefaultAsync(
+            s => s.CountryId == countryId && s.CurrAccCode == currAccCode, cancellationToken);
+
+        if (store is null)
+        {
+            store = new LtsIntegrationStore { CountryId = countryId, CurrAccCode = currAccCode };
+            db.Stores.Add(store);
+        }
+
+        cache[currAccCode] = store;
     }
 }

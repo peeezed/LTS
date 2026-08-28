@@ -120,11 +120,16 @@ public sealed record TransferRow
     /// <summary>Date created: the shipment's invoice date.</summary>
     public DateOnly DateCreated { get; init; }
 
+    /// <summary>
+    /// Resolved from LTS_Stores by the transfer's ReceivingStoreCode (really a CurrAccCode - see
+    /// LtsIntegrationStore). Falls back to the raw CurrAccCode when Master Data hasn't described
+    /// the store yet, so the grid always shows something rather than a blank cell.
+    /// </summary>
     public string? StoreCode { get; init; }
     public string? StoreName { get; init; }
 
-    /// <summary>Receiver as shown in the grid: "code - name".</summary>
-    public string Receiver => $"{StoreCode} - {StoreName}";
+    /// <summary>Receiver as shown in the grid: "code - name", or just the code while unmapped.</summary>
+    public string Receiver => StoreName is null ? StoreCode ?? string.Empty : $"{StoreCode} - {StoreName}";
 
     public TrackingStatus CurrentStatus { get; init; }
     public PerformanceStatus Performance { get; init; }
