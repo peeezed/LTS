@@ -9,11 +9,10 @@ transfer continues: **crossdock departure → store arrival → store pre-accept
 acceptance**. LTS tracks both halves, scores every step against a KPI target, and lets logistics
 companies and brokers enter their own dates without seeing each other's.
 
-The app is mid-migration onto **`LTS_Integration`**, an external SQL Server database owned by the
-company's own systems. All live tracking pages read and write it today; a couple of older pieces
-(flagged below) still hang off the app's original, now largely retired database. Data arrives on
-`LTS_Integration` either through scheduled feed polls from the company's internal APIs, or typed
-in directly through Shipment Details or bulk Excel upload — the pages and KPI engine don't care which.
+The app has migrated onto **`LTS_Integration`**, an external SQL Server database owned by the
+company's own systems — every live page now reads and writes it. Data arrives on `LTS_Integration`
+either through scheduled feed polls from the company's internal APIs, or typed in directly through
+Shipment Details or bulk Excel upload — the pages and KPI engine don't care which.
 
 ---
 
@@ -40,7 +39,6 @@ Sign-in itself is checked against `LTS_Integration`, not the old database.
 |---|---|
 | `ApplyMigrationsOnStartup`, `SeedDemoData` | Apply EF migrations / seed demo data into the **old** database only (see caveat below) |
 | `Admin` | The bootstrap administrator's email, name and initial password |
-| `Integration` | The legacy, per-country JSON-adapter poller (off by default) |
 | `ShipmentFeed` | Poll interval, base URL and secret name for the shipment-header feed |
 | `ExportAttributeFeed` | Poll interval, base URL and secret name for the attribute-backfill feed |
 | `ShipmentStatusReconciliation` | Poll interval for catching up stale `CurrentStatus` values |
@@ -71,26 +69,28 @@ tools/
 └─ ShipmentFeedSimulator  standalone app for running real feed payloads through the real
                           standardize+upsert pipeline by hand, against a real LTS_Integration DB
 tests/
-└─ LTS.Tests           128 tests over KPI scoring, permissions, tracking, Excel import and the feeds
+└─ LTS.Tests           110 tests over KPI scoring, permissions, tracking, Excel import and the feeds
 ```
 
-### Two databases, one in retreat
+### Two databases, one now retired
 
 - **`LTS_Integration`** (connection string `LtsIntegration`) — the live database. Its schema is
   managed by hand (never migrated by EF); `LtsIntegrationDbContext` only ever maps tables that
-  already exist. Identity, Shipments, Transfers, On The Way, Shipment Details, KPI Targets, Delay
-  Alerts and the Audit Log all read and write here through a parallel set of `Integration`-prefixed
-  services (`IntegrationShipmentQueryService`, `IntegrationMilestoneService`,
+  already exist. Every live page — Shipments, Transfers, On The Way, Shipment Details, Date Upload,
+  KPI Targets, Delay Alerts, the Audit Log — reads and writes here through a parallel set of
+  `Integration`-prefixed services (`IntegrationShipmentQueryService`, `IntegrationMilestoneService`,
   `IntegrationKpiAdminService`, `IntegrationAuditQueryService`, …).
-- **`Lts`** (the app's original LocalDB, EF-migrated) — still real for exactly one thing: **Admin >
-  Integrations** (the old per-country JSON-adapter poller and its status mappings, which shows a
-  warning banner if the old database is unreachable). Everything else that once lived here — the
-  old audit log, the old KPI admin, Date Upload, the demo-data shipment set — has no live page
-  reading it anymore.
+- **`Lts`** (the app's original LocalDB, EF-migrated) — no live page reads or writes it anymore.
+  The old, generic per-country adapter/poller system it once backed (admin-editable status
+  mappings, a run monitor) was retired outright rather than migrated: it was superseded in
+  substance by the concrete `ShipmentFeed`/`ExportAttributeFeed` pollers below, which talk to the
+  one real API directly instead of through a pluggable-adapter abstraction designed before that API
+  was known. `SeedDemoData: true` still writes a demo dataset here (see the caveat below), but
+  nothing reads it back.
 
 Both sides share one vocabulary: `MilestoneCatalog` (12 milestones — 7 shipment-scope, 5
-transfer-scope) and `MilestoneType` are used by the old and new writers alike, so a milestone means
-the same thing everywhere; only *which database* records it differs.
+transfer-scope) and `MilestoneType` — the live writer is `IntegrationMilestoneService`, but the
+same catalog and types are what the whole app, old and new alike, means by a "milestone."
 
 ### How shipments get into `LTS_Integration`
 
@@ -182,5 +182,4 @@ grids. When a feed overwrites something a person typed, the typed value survives
 | Admin > Master Data | Shared lookup tables (customs points, export types, transport types, …) |
 | Admin > KPI Targets | Target days per KPI leg, per country, optionally scoped to specific attribute values |
 | Admin > Delay Alerts | Per-country configuration for the two delay alert mails, plus manual "Send Now" |
-| Admin > Integrations | The old per-country adapter poller and its status mappings (legacy, old database) |
 | Admin > Audit Log | Every milestone date change, old/new value, source and author |

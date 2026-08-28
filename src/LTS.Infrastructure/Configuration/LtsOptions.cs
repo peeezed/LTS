@@ -19,8 +19,6 @@ public sealed class LtsOptions
 
     public AdminSeedOptions Admin { get; set; } = new();
 
-    public IntegrationOptions Integration { get; set; } = new();
-
     public ShipmentFeedOptions ShipmentFeed { get; set; } = new();
 
     public ExportAttributeFeedOptions ExportAttributeFeed { get; set; } = new();
@@ -45,25 +43,9 @@ public sealed class AdminSeedOptions
     public string InitialPassword { get; set; } = "ChangeMe!2026";
 }
 
-/// <summary>How the integration poller behaves.</summary>
-public sealed class IntegrationOptions
-{
-    public bool Enabled { get; set; } = true;
-
-    /// <summary>
-    /// How often the poller wakes up to look for due sources. Each source then runs on its own
-    /// <c>PollIntervalMinutes</c>, so this only bounds how promptly one becomes due.
-    /// </summary>
-    public int PollSeconds { get; set; } = 60;
-
-    /// <summary>Folder the mock adapter reads sample payloads from, relative to the content root.</summary>
-    public string MockDataPath { get; set; } = "SampleData";
-}
-
 /// <summary>
 /// How the shipments feed poller behaves - the company's own internal shipment header source,
-/// pulled into LTS_Shipments via LTS_ShipmentFeedStaging. Unrelated to (and simpler than)
-/// <see cref="IntegrationOptions"/>, which belongs to the old, now-dead country-adapter pipeline.
+/// pulled into LTS_Shipments via LTS_ShipmentFeedStaging.
 /// </summary>
 public sealed class ShipmentFeedOptions
 {

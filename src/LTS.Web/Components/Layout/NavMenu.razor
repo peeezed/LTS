@@ -53,10 +53,6 @@
                 {
                     <MudNavLink Href="@($"/{code}/admin/delay-alerts")" Icon="@Icons.Material.Filled.NotificationsActive">Delay Alerts</MudNavLink>
                 }
-                @if (_permissions.CanView(PageKeys.AdminIntegrations, id))
-                {
-                    <MudNavLink Href="@($"/{code}/admin/integrations")" Icon="@Icons.Material.Filled.Sync">Integrations</MudNavLink>
-                }
                 @if (_permissions.CanView(PageKeys.AdminAuditLog, id))
                 {
                     <MudNavLink Href="@($"/{code}/admin/audit-log")" Icon="@Icons.Material.Filled.History">Audit Log</MudNavLink>

@@ -1,6 +1,5 @@
 ﻿using LTS.Application.Abstractions;
 using LTS.Application.Excel;
-using LTS.Application.Integration;
 using LTS.Application.Kpi;
 using LTS.Application.Reference;
 using LTS.Application.Security;
@@ -10,7 +9,6 @@ using LTS.Domain.Entities;
 using LTS.Infrastructure.DelayAlerts;
 using LTS.Infrastructure.Email;
 using LTS.Infrastructure.ExportAttributeFeed;
-using LTS.Infrastructure.Integration;
 using LTS.Infrastructure.Kpi;
 using LTS.Infrastructure.Persistence;
 using LTS.Infrastructure.Reference;
@@ -95,14 +93,8 @@ public static class DependencyInjection
         services.AddScoped<IReferenceDataService, ReferenceDataService>();
         // Sourced from LTS_Integration, not the old database - see IntegrationShipmentQueryService.
         services.AddScoped<IShipmentQueryService, IntegrationShipmentQueryService>();
-        // The old database's own milestone writer - still used by the integration poller
-        // (IntegrationRunner), which is explicitly out of scope for this migration for now since
-        // its shipments only exist in the old database.
-        services.AddScoped<IMilestoneService, MilestoneService>();
         // The Shipment Details page's and the Excel upload's shared writer, sourced from
-        // LTS_Integration - kept separate from the registration above rather than replacing it,
-        // since IntegrationRunner still depends on IMilestoneService and swapping it would
-        // silently break that (explicitly out-of-scope) integration poller.
+        // LTS_Integration.
         services.AddScoped<IIntegrationMilestoneService, IntegrationMilestoneService>();
         services.AddScoped<IKpiTargetProvider, KpiTargetProvider>();
 
@@ -112,23 +104,15 @@ public static class DependencyInjection
         // Administration.
         services.AddScoped<IKpiAdminService, KpiAdminService>();
         services.AddScoped<IIntegrationKpiAdminService, IntegrationKpiAdminService>();
-        services.AddScoped<IIntegrationAdminService, IntegrationAdminService>();
         services.AddScoped<IUserAdminService, UserAdminService>();
         services.AddScoped<IMasterDataService, MasterDataService>();
         services.AddScoped<IAuditQueryService, AuditQueryService>();
         services.AddScoped<IIntegrationAuditQueryService, IntegrationAuditQueryService>();
 
-        // Integration: adapters are registered by key, so onboarding a country adds an adapter
-        // here and its configuration rows in the database - nothing else changes.
         services.AddHttpClient();
-        services.AddSingleton<ICountryIntegrationAdapter, MockJsonAdapter>();
-        services.AddSingleton<IIntegrationAdapterRegistry, IntegrationAdapterRegistry>();
-        services.AddScoped<IntegrationRunner>();
-        services.AddHostedService<IntegrationPoller>();
 
         // Shipments feed: the company's own internal shipment header source. One shared
-        // endpoint, one country loop, config-driven - deliberately not routed through the dead
-        // adapter registry above.
+        // endpoint, one country loop, config-driven.
         services.AddScoped<IShipmentFeedClient, ShipmentFeedClient>();
         services.AddScoped<ShipmentFeedRunner>();
         services.AddHostedService<ShipmentFeedPoller>();

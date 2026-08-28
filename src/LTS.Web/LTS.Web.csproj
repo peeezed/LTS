@@ -15,12 +15,6 @@
     <PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
   </ItemGroup>
 
-  <ItemGroup>
-    <!-- Mock integration payloads: read from the content root at runtime, so they have to
-         travel with a published build as well as a local one. -->
-    <Content Update="SampleData\**\*.json" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
-
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>

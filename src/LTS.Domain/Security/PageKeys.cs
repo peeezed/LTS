@@ -14,7 +14,6 @@ public static class PageKeys
     public const string AdminMasterData = "admin.master-data";
     public const string AdminKpi = "admin.kpi";
     public const string AdminDelayAlerts = "admin.delay-alerts";
-    public const string AdminIntegrations = "admin.integrations";
     public const string AdminAuditLog = "admin.audit-log";
 }
 
@@ -54,7 +53,6 @@ public static class PageCatalog
         new(PageKeys.AdminMasterData, "Master Data", AdminGroup),
         new(PageKeys.AdminKpi, "KPI Targets", AdminGroup),
         new(PageKeys.AdminDelayAlerts, "Delay Alerts", AdminGroup),
-        new(PageKeys.AdminIntegrations, "Integrations", AdminGroup),
         new(PageKeys.AdminAuditLog, "Audit Log", AdminGroup, SupportsEdit: false)
     ];
 

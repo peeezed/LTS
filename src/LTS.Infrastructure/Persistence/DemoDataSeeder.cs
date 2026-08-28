@@ -13,9 +13,9 @@ namespace LTS.Infrastructure.Persistence;
 
 /// <summary>
 /// Builds a realistic demo dataset: two countries, their reference data, KPI targets, users of
-/// each type, a mock integration source, and shipments spread across every stage of the
-/// lifecycle. Without it there is nothing to look at until a real integration is connected,
-/// and no way to check that statuses, KPI scoring and permissions behave.
+/// each type, and shipments spread across every stage of the lifecycle. Without it there is
+/// nothing to look at until a real integration is connected, and no way to check that statuses,
+/// KPI scoring and permissions behave.
 /// </summary>
 internal static class DemoDataSeeder
 {
@@ -43,7 +43,6 @@ internal static class DemoDataSeeder
         var stores = await SeedStoresAsync(db, countries);
 
         await SeedKpiTargetsAsync(db, countries, lookups);
-        await SeedIntegrationAsync(db, countries);
         await SeedShipmentsAsync(db, countries, lookups, loadingPoints, partners, stores);
         await SeedUsersAsync(provider, partners);
 
@@ -229,72 +228,6 @@ internal static class DemoDataSeeder
         db.KpiTargets.AddRange(targets);
         await db.SaveChangesAsync();
     }
-
-    /// <summary>
-    /// A mock source per country with its status mappings, so the whole integration path —
-    /// poll, map, apply, audit — can be exercised before a real endpoint exists.
-    /// </summary>
-    private static async Task SeedIntegrationAsync(LtsDbContext db, List<Country> countries)
-    {
-        foreach (var country in countries)
-        {
-            var source = new IntegrationSource
-            {
-                CountryId = country.Id,
-                Kind = IntegrationSourceKind.Warehouse,
-                Name = $"{country.Name} Warehouse (mock)",
-                AdapterKey = MockAdapterKey,
-                PollIntervalMinutes = 5,
-                IsActive = true
-            };
-
-            db.IntegrationSources.Add(source);
-            await db.SaveChangesAsync();
-
-            // Deliberately unlike the LTS names: this is the point of the mapping table.
-            db.StatusMappings.AddRange(
-                new StatusMapping
-                {
-                    IntegrationSourceId = source.Id,
-                    RawCode = "WH_IN",
-                    RawDescription = "Goods received at crossdock",
-                    MilestoneType = MilestoneType.CrossdockArrival
-                },
-                new StatusMapping
-                {
-                    IntegrationSourceId = source.Id,
-                    RawCode = "WH_OUT",
-                    RawDescription = "Dispatched from crossdock",
-                    MilestoneType = MilestoneType.CrossdockDeparture
-                },
-                new StatusMapping
-                {
-                    IntegrationSourceId = source.Id,
-                    RawCode = "ETA_STORE",
-                    RawDescription = "Planned store arrival",
-                    MilestoneType = MilestoneType.PlannedStoreArrival
-                },
-                new StatusMapping
-                {
-                    IntegrationSourceId = source.Id,
-                    RawCode = "POD",
-                    RawDescription = "Proof of delivery at store",
-                    MilestoneType = MilestoneType.StoreArrival
-                },
-                new StatusMapping
-                {
-                    IntegrationSourceId = source.Id,
-                    RawCode = "WH_SCAN",
-                    RawDescription = "Internal handling scan",
-                    IsIgnored = true
-                });
-
-            await db.SaveChangesAsync();
-        }
-    }
-
-    /// <summary>Adapter key of the sample-file adapter; matches the registration in the poller.</summary>
-    private const string MockAdapterKey = "mock-json";
 
     private static async Task SeedShipmentsAsync(
         LtsDbContext db,

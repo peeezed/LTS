@@ -32,12 +32,6 @@ public class LtsDbContext(DbContextOptions<LtsDbContext> options, ICurrentUser? 
     // KPI
     public DbSet<KpiTarget> KpiTargets => Set<KpiTarget>();
 
-    // Integration
-    public DbSet<IntegrationSource> IntegrationSources => Set<IntegrationSource>();
-    public DbSet<StatusMapping> StatusMappings => Set<StatusMapping>();
-    public DbSet<IntegrationRun> IntegrationRuns => Set<IntegrationRun>();
-    public DbSet<IntegrationMessage> IntegrationMessages => Set<IntegrationMessage>();
-
     // Security
     public DbSet<UserCountryAccess> UserCountryAccess => Set<UserCountryAccess>();
     public DbSet<UserPagePermission> UserPagePermissions => Set<UserPagePermission>();
