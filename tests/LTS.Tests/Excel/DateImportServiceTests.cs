@@ -229,7 +229,7 @@ public class DateImportServiceTests
     }
 
     /// <summary>Captures what the import handed to the milestone service without touching a database.</summary>
-    private sealed class RecordingMilestoneService : IMilestoneService
+    private sealed class RecordingMilestoneService : IIntegrationMilestoneService
     {
         public List<MilestoneChange> Changes { get; } = [];
         public MilestoneApplyOptions? Options { get; private set; }
@@ -245,5 +245,8 @@ public class DateImportServiceTests
 
             return Task.FromResult(new MilestoneApplyResult(Changes.Count, 0, []));
         }
+
+        public Task RecomputeKpiForShipmentAsync(string referenceNo, CancellationToken cancellationToken = default) =>
+            Task.CompletedTask;
     }
 }

@@ -96,13 +96,13 @@ public static class DependencyInjection
         // Sourced from LTS_Integration, not the old database - see IntegrationShipmentQueryService.
         services.AddScoped<IShipmentQueryService, IntegrationShipmentQueryService>();
         // The old database's own milestone writer - still used by the integration poller
-        // (IntegrationRunner) and the Excel upload (DateImportService), both of which still act
-        // on LtsDbContext's own Shipments and are out of scope for this migration for now.
+        // (IntegrationRunner), which is explicitly out of scope for this migration for now since
+        // its shipments only exist in the old database.
         services.AddScoped<IMilestoneService, MilestoneService>();
-        // The Shipment Details page's writer, kept separate rather than replacing the
-        // registration above: IntegrationRunner also depends on IMilestoneService, and swapping
-        // it would silently break the (explicitly out-of-scope) integration poller, whose
-        // shipments only exist in the old database.
+        // The Shipment Details page's and the Excel upload's shared writer, sourced from
+        // LTS_Integration - kept separate from the registration above rather than replacing it,
+        // since IntegrationRunner still depends on IMilestoneService and swapping it would
+        // silently break that (explicitly out-of-scope) integration poller.
         services.AddScoped<IIntegrationMilestoneService, IntegrationMilestoneService>();
         services.AddScoped<IKpiTargetProvider, KpiTargetProvider>();
 

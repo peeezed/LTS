@@ -29,7 +29,7 @@ public interface IDateImportService
     byte[] BuildErrorReport(DateImportPreview preview, IReadOnlyList<MilestoneError> applyErrors);
 }
 
-public sealed class DateImportService(IMilestoneService milestones) : IDateImportService
+public sealed class DateImportService(IIntegrationMilestoneService milestones) : IDateImportService
 {
     private const string ShipmentSheet = "Shipment Dates";
     private const string TransferSheet = "Transfer Dates";
