@@ -17,7 +17,8 @@ public sealed record PartnerInput(int? Id, PartnerType Type, string Code, string
 
 public sealed record LoadingPointInput(int? Id, string Code, string Name, string CountryCode, bool IsActive);
 
-public sealed record StoreInput(int? Id, int CountryId, string Code, string Name, bool IsActive);
+public sealed record StoreInput(
+    int? Id, int CountryId, string Code, string? CurrAccCode, string Description, string? City, bool IsActive);
 
 /// <summary>One row of one of LTS_Integration's Code+Description shipment attribute tables.</summary>
 public sealed record AttributeInput(int? Id, string Code, string Description);

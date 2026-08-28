@@ -119,15 +119,30 @@ public sealed class MasterDataService(
     {
         ArgumentNullException.ThrowIfNull(input);
 
-        var store = await FindOrCreateAsync(db.Stores, input.Id,
-            () => new Store { CountryId = input.CountryId, Code = input.Code, Name = input.Name }, cancellationToken);
+        var rawCountryId = IntegrationCountryId.ToRawId(input.CountryId);
 
-        store.CountryId = input.CountryId;
+        await using var integrationDb = await integrationDbFactory.CreateDbContextAsync(cancellationToken);
+
+        LtsIntegrationStore store;
+        if (input.Id is { } id)
+        {
+            store = await integrationDb.Stores.FirstOrDefaultAsync(s => s.Id == id, cancellationToken)
+                ?? throw new InvalidOperationException($"Store {id} does not exist.");
+        }
+        else
+        {
+            store = new LtsIntegrationStore { CountryId = rawCountryId, Code = input.Code, Description = input.Description };
+            integrationDb.Stores.Add(store);
+        }
+
+        store.CountryId = rawCountryId;
         store.Code = Require(input.Code, "Code");
-        store.Name = Require(input.Name, "Name");
+        store.Description = Require(input.Description, "Description");
+        store.CurrAccCode = string.IsNullOrWhiteSpace(input.CurrAccCode) ? null : input.CurrAccCode.Trim();
+        store.City = string.IsNullOrWhiteSpace(input.City) ? null : input.City.Trim();
         store.IsActive = input.IsActive;
 
-        await db.SaveChangesAsync(cancellationToken);
+        await integrationDb.SaveChangesAsync(cancellationToken);
 
         return store.Id;
     }

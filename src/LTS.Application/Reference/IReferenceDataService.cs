@@ -17,9 +17,10 @@ public sealed record LoadingPointDto(int Id, string Code, string Name, string Co
     public string Display => $"{Name} ({CountryCode})";
 }
 
-public sealed record StoreDto(int Id, string Code, string Name, int CountryId, bool IsActive)
+public sealed record StoreDto(
+    int Id, string Code, string? CurrAccCode, string Description, string? City, int CountryId, bool IsActive)
 {
-    public string Display => $"{Code} - {Name}";
+    public string Display => $"{Code} - {Description}";
 }
 
 /// <summary>Which of LTS_Integration's shipment attribute lookup tables to read or write.</summary>
@@ -72,6 +73,7 @@ public interface IReferenceDataService
     Task<IReadOnlyList<LoadingPointDto>> GetLoadingPointsAsync(
         bool activeOnly = true, CancellationToken cancellationToken = default);
 
+    /// <summary>Stores from LTS_Integration's own store table, scoped to one country.</summary>
     Task<IReadOnlyList<StoreDto>> GetStoresAsync(
         int countryId, bool activeOnly = true, CancellationToken cancellationToken = default);
 

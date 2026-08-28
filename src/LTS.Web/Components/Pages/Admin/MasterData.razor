@@ -19,7 +19,7 @@ else
     <MudText Typo="Typo.body2" Class="mud-text-secondary mb-4">
         The reference data shipments are matched against. Integration payloads are matched to
         these by code, so a missing entry is what makes an import fail. Shared across every
-        country - none of these tables are country-specific.
+        country, except Stores, which belongs to @Country.Current!.Name only.
     </MudText>
 
     <MudTabs Elevation="1" Rounded="true" ApplyEffectsToContainer="true" PanelClass="pa-4">
@@ -60,19 +60,11 @@ else
         </MudTabPanel>
 
         <MudTabPanel Text="Stores" Icon="@Icons.Material.Filled.Store">
-            @if (_storesUnavailable)
-            {
-                <MudAlert Severity="Severity.Warning">
-                    Stores could not be loaded. This tab still reads from the old LTS database, which is no
-                    longer available.
-                </MudAlert>
-            }
-            else
-            {
             <MudStack Row="true" AlignItems="AlignItems.Center" Class="mb-3">
                 <MudText Typo="Typo.body2" Class="mud-text-secondary">
                     Destinations for transfers in @Country.Current!.Name. A transfer whose store code is
-                    unknown cannot be imported.
+                    unknown cannot be imported. City drives the Local Transportation KPI once targets can
+                    be scoped by it.
                 </MudText>
                 <MudSpacer />
                 @if (CanEdit)
@@ -86,11 +78,14 @@ else
 
             <MudTable Items="_stores" Dense="true" Hover="true" Elevation="0" FixedHeader="true" Height="440px">
                 <HeaderContent>
-                    <MudTh>Code</MudTh><MudTh>Name</MudTh><MudTh>Active</MudTh><MudTh></MudTh>
+                    <MudTh>Code</MudTh><MudTh>Curr Acc Code</MudTh><MudTh>Description</MudTh><MudTh>City</MudTh>
+                    <MudTh>Active</MudTh><MudTh></MudTh>
                 </HeaderContent>
                 <RowTemplate>
                     <MudTd>@context.Code</MudTd>
-                    <MudTd>@context.Name</MudTd>
+                    <MudTd>@context.CurrAccCode</MudTd>
+                    <MudTd>@context.Description</MudTd>
+                    <MudTd>@context.City</MudTd>
                     <MudTd><ActiveIcon IsActive="context.IsActive" /></MudTd>
                     <MudTd>
                         @if (CanEdit)
@@ -110,12 +105,20 @@ else
                             <MudTextField T="string" @bind-Value="_storeCode" Label="Code"
                                           Variant="Variant.Outlined" Margin="Margin.Dense" />
                         </MudItem>
-                        <MudItem xs="12" sm="5">
-                            <MudTextField T="string" @bind-Value="_storeName" Label="Name"
+                        <MudItem xs="12" sm="3">
+                            <MudTextField T="string" @bind-Value="_storeCurrAccCode" Label="Curr acc code"
+                                          Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        </MudItem>
+                        <MudItem xs="12" sm="4">
+                            <MudTextField T="string" @bind-Value="_storeDescription" Label="Description"
                                           Variant="Variant.Outlined" Margin="Margin.Dense" />
                         </MudItem>
                         <MudItem xs="12" sm="2">
                             <MudSwitch T="bool" @bind-Value="_storeActive" Label="Active" Color="Color.Primary" />
+                        </MudItem>
+                        <MudItem xs="12" sm="4">
+                            <MudTextField T="string" @bind-Value="_storeCity" Label="City"
+                                          Variant="Variant.Outlined" Margin="Margin.Dense" />
                         </MudItem>
                         <MudItem xs="12" Class="d-flex gap-2">
                             <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveStoreAsync">Save</MudButton>
@@ -123,7 +126,6 @@ else
                         </MudItem>
                     </MudGrid>
                 </MudPaper>
-            }
             }
         </MudTabPanel>
     </MudTabs>
@@ -140,10 +142,12 @@ else
     private IReadOnlyList<AttributeDto> _logisticsCompanies = [];
     private IReadOnlyList<AttributeDto> _brokers = [];
     private IReadOnlyList<StoreDto> _stores = [];
-    private bool _storesUnavailable;
 
     private StoreDto? _editingStore;
-    private string _storeCode = string.Empty, _storeName = string.Empty;
+    private string _storeCode = string.Empty;
+    private string? _storeCurrAccCode;
+    private string _storeDescription = string.Empty;
+    private string? _storeCity;
     private bool _storeActive = true;
 
     protected override Task OnCountryReadyAsync() => ReloadAsync();
@@ -156,26 +160,16 @@ else
         _loadingPoints = await Reference.GetIntegrationAttributesAsync(AttributeKind.LoadingPoint);
         _logisticsCompanies = await Reference.GetIntegrationAttributesAsync(AttributeKind.LogisticsCompany);
         _brokers = await Reference.GetIntegrationAttributesAsync(AttributeKind.Broker);
-
-        // Stores still lives on the old database (no LTS_Integration table exists for it yet), so
-        // its failure must not take the other six, already-migrated tabs down with it.
-        try
-        {
-            _stores = await Reference.GetStoresAsync(CountryId, activeOnly: false);
-            _storesUnavailable = false;
-        }
-        catch (Exception)
-        {
-            _stores = [];
-            _storesUnavailable = true;
-        }
+        _stores = await Reference.GetStoresAsync(CountryId, activeOnly: false);
     }
 
     private void EditStore(StoreDto? store)
     {
-        _editingStore = store ?? new StoreDto(0, string.Empty, string.Empty, CountryId, true);
+        _editingStore = store ?? new StoreDto(0, string.Empty, null, string.Empty, null, CountryId, true);
         _storeCode = _editingStore.Code;
-        _storeName = _editingStore.Name;
+        _storeCurrAccCode = _editingStore.CurrAccCode;
+        _storeDescription = _editingStore.Description;
+        _storeCity = _editingStore.City;
         _storeActive = _editingStore.IsActive;
     }
 
@@ -185,7 +179,7 @@ else
         {
             await Master.SaveStoreAsync(new StoreInput(
                 _editingStore!.Id == 0 ? null : _editingStore.Id,
-                CountryId, _storeCode, _storeName, _storeActive));
+                CountryId, _storeCode, _storeCurrAccCode, _storeDescription, _storeCity, _storeActive));
 
             _editingStore = null;
             Snackbar.Add("Store saved.", Severity.Success);

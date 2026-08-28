@@ -117,14 +117,20 @@ public sealed class ReferenceDataService(
             .ToListAsync(cancellationToken);
 
     public async Task<IReadOnlyList<StoreDto>> GetStoresAsync(
-        int countryId, bool activeOnly = true, CancellationToken cancellationToken = default) =>
-        await db.Stores
+        int countryId, bool activeOnly = true, CancellationToken cancellationToken = default)
+    {
+        var rawCountryId = IntegrationCountryId.ToRawId(countryId);
+
+        await using var integrationDb = await integrationDbFactory.CreateDbContextAsync(cancellationToken);
+
+        return await integrationDb.Stores
             .AsNoTracking()
-            .Where(s => s.CountryId == countryId)
+            .Where(s => s.CountryId == rawCountryId)
             .Where(s => !activeOnly || s.IsActive)
             .OrderBy(s => s.Code)
-            .Select(s => new StoreDto(s.Id, s.Code, s.Name, s.CountryId, s.IsActive))
+            .Select(s => new StoreDto(s.Id, s.Code, s.CurrAccCode, s.Description, s.City, countryId, s.IsActive))
             .ToListAsync(cancellationToken);
+    }
 
     public async Task<IReadOnlyList<AttributeDto>> GetIntegrationAttributesAsync(
         AttributeKind kind, CancellationToken cancellationToken = default)

@@ -22,6 +22,7 @@ public class LtsIntegrationDbContext(DbContextOptions<LtsIntegrationDbContext> o
     : IdentityDbContext<AppUser, IdentityRole<Guid>, Guid>(options)
 {
     public DbSet<LtsIntegrationCountry> Countries => Set<LtsIntegrationCountry>();
+    public DbSet<LtsIntegrationStore> Stores => Set<LtsIntegrationStore>();
 
     public DbSet<UserCountryAccess> UserCountryAccess => Set<UserCountryAccess>();
     public DbSet<UserPagePermission> UserPagePermissions => Set<UserPagePermission>();
@@ -62,6 +63,17 @@ public class LtsIntegrationDbContext(DbContextOptions<LtsIntegrationDbContext> o
             entity.Property(c => c.CountryDescription).HasColumnName("CountryDescription").HasMaxLength(50).IsRequired();
             entity.Property(c => c.CustomerCode).HasColumnName("CustomerCode").HasMaxLength(50);
             entity.Property(c => c.IsActive).HasColumnName("IsActive");
+        });
+
+        builder.Entity<LtsIntegrationStore>(entity =>
+        {
+            entity.ToTable("LTS_Stores");
+            entity.HasKey(s => s.Id);
+            entity.Property(s => s.Id).HasColumnName("ID");
+            entity.Property(s => s.Code).HasColumnName("StoreCode").HasMaxLength(50).IsRequired();
+            entity.Property(s => s.CurrAccCode).HasColumnName("StoreCurrAccCode").HasMaxLength(50);
+            entity.Property(s => s.Description).HasColumnName("StoreDescription").HasMaxLength(200).IsRequired();
+            entity.Property(s => s.City).HasColumnName("City").HasMaxLength(100);
         });
 
         // AppUser's Partner and UserCountryAccess/UserPagePermission's Country navigations point
@@ -261,6 +273,23 @@ public class LtsIntegrationCountry
     public required string CountryCode { get; set; }
     public required string CountryDescription { get; set; }
     public string? CustomerCode { get; set; }
+    public bool IsActive { get; set; } = true;
+}
+
+/// <summary>
+/// One row of LTS_Stores: a transfer's final destination. CountryId is required - unlike the
+/// six shipment attribute lookup tables, a store code only means something within one country.
+/// City exists for the Local Transportation KPI leg, which a future round will let a target scope
+/// by (see IntegrationKpiCatalog) - not read by anything yet.
+/// </summary>
+public class LtsIntegrationStore
+{
+    public int Id { get; set; }
+    public required int CountryId { get; set; }
+    public required string Code { get; set; }
+    public string? CurrAccCode { get; set; }
+    public required string Description { get; set; }
+    public string? City { get; set; }
     public bool IsActive { get; set; } = true;
 }
 
