@@ -13,7 +13,7 @@ The app is mid-migration onto **`LTS_Integration`**, an external SQL Server data
 company's own systems. All live tracking pages read and write it today; a couple of older pieces
 (flagged below) still hang off the app's original, now largely retired database. Data arrives on
 `LTS_Integration` either through scheduled feed polls from the company's internal APIs, or typed
-in directly through Shipment Details — the pages and KPI engine don't care which.
+in directly through Shipment Details or bulk Excel upload — the pages and KPI engine don't care which.
 
 ---
 
@@ -82,12 +82,11 @@ tests/
   Alerts and the Audit Log all read and write here through a parallel set of `Integration`-prefixed
   services (`IntegrationShipmentQueryService`, `IntegrationMilestoneService`,
   `IntegrationKpiAdminService`, `IntegrationAuditQueryService`, …).
-- **`Lts`** (the app's original LocalDB, EF-migrated) — still real for exactly two things: **Date
-  Upload** (Excel bulk entry still writes here, through the old `IMilestoneService`) and **Admin >
+- **`Lts`** (the app's original LocalDB, EF-migrated) — still real for exactly one thing: **Admin >
   Integrations** (the old per-country JSON-adapter poller and its status mappings, which shows a
   warning banner if the old database is unreachable). Everything else that once lived here — the
-  old audit log, the old KPI admin, the demo-data shipment set — has no live page reading it
-  anymore.
+  old audit log, the old KPI admin, Date Upload, the demo-data shipment set — has no live page
+  reading it anymore.
 
 Both sides share one vocabulary: `MilestoneCatalog` (12 milestones — 7 shipment-scope, 5
 transfer-scope) and `MilestoneType` are used by the old and new writers alike, so a milestone means
@@ -177,7 +176,7 @@ grids. When a feed overwrites something a person typed, the typed value survives
 | Transfers | The store legs: transfer no, receiver, status, performance, boxes/items, the store dates |
 | Shipments On The Way | Dashboard of everything short of a store arrival — where, how late, whose |
 | Shipment Details | Date entry, showing only the fields the account owns, writing to `LTS_Integration` |
-| Date Upload | Excel bulk entry: template → validate → preview → commit → error report (still writes to the old database) |
+| Date Upload | Excel bulk entry: template → validate → preview → commit → error report, writing to `LTS_Integration` |
 | Admin > Users | Create/manage accounts and their per-country, per-page permissions |
 | Admin > Countries | The countries LTS operates in, and the customer code that ties them to feed data |
 | Admin > Master Data | Shared lookup tables (customs points, export types, transport types, …) |
