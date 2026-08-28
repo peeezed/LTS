@@ -176,7 +176,9 @@ app.MapPost("/simulate-export-attributes", async (ExportAttributeSimulateRequest
     }
 });
 
-app.Run("http://localhost:5299");
+// No hardcoded URL here (unlike a bare app.Run("http://...")) so --urls/ASPNETCORE_URLS on the
+// command line actually take effect - a literal URL passed to Run() always wins over both.
+app.Run();
 
 internal sealed record ParseListRequest(string ListJson);
 
