@@ -152,4 +152,10 @@ public sealed record TransferRow
     public DateOnly? StoreArrivalDate { get; init; }
     public DateOnly? StorePreAcceptanceDate { get; init; }
     public DateOnly? StoreAcceptanceDate { get; init; }
+
+    /// <summary>
+    /// KLG OneClick's "perm_shipment_id" for this transfer, typed in by hand - Romania only, null
+    /// everywhere else and for a Romania transfer not yet linked. See Transfers.razor.
+    /// </summary>
+    public string? RomaniaPermShipmentId { get; init; }
 }

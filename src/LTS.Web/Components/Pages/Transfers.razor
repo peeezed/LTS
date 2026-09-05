@@ -3,6 +3,7 @@
 @layout AppLayout
 @inherits CountryPageBase
 @inject IShipmentQueryService Query
+@inject IRomaniaTransferLinkService RomaniaTransferLinks
 
 <PageTitle>Transfers · LTS</PageTitle>
 
@@ -29,6 +30,19 @@ else
                  FixedHeader="true" Height="calc(100vh - 320px)">
         <Columns>
             <PropertyColumn Property="x => x.TransferNo" Title="Transfer No" />
+
+            @if (Country.CountryCode == "RO")
+            {
+                <TemplateColumn Title="KLG Shipment ID" Sortable="false">
+                    <CellTemplate>
+                        <MudTextField T="string" Value="@context.Item.RomaniaPermShipmentId"
+                                      ValueChanged="@(value => OnRomaniaPermShipmentIdChangedAsync(context.Item, value))"
+                                      Immediate="false" ReadOnly="@(!CanEdit)" Margin="Margin.Dense"
+                                      Variant="Variant.Text" Placeholder="perm_shipment_id" />
+                    </CellTemplate>
+                </TemplateColumn>
+            }
+
             <PropertyColumn Property="x => x.InvoiceNo" Title="Invoice No" />
             <PropertyColumn Property="x => x.DateCreated" Title="Date Created" Format="yyyy-MM-dd" />
 
@@ -117,6 +131,26 @@ else
             new GridRequest(state.Page, state.PageSize, sort?.SortBy, sort?.Descending ?? false));
 
         return new GridData<TransferRow> { Items = result.Items, TotalItems = result.TotalCount };
+    }
+
+    /// <summary>
+    /// Romania-only: writes the KLG perm_shipment_id typed onto this transfer, then reloads the
+    /// grid so the saved value (and any dates the next poll fills in) shows up without a manual
+    /// page refresh - the same reload-on-change approach every other grid state change here uses.
+    /// </summary>
+    private async Task OnRomaniaPermShipmentIdChangedAsync(TransferRow row, string? value)
+    {
+        if (!CanEdit || value == row.RomaniaPermShipmentId)
+        {
+            return;
+        }
+
+        await RomaniaTransferLinks.SetPermShipmentIdAsync(row.TransferNo, value);
+
+        if (_grid is not null)
+        {
+            await _grid.ReloadServerData();
+        }
     }
 
     private async Task OnFilterChangedAsync(ShipmentFilter filter)

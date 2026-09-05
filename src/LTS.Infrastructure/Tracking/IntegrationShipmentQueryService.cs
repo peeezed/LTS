@@ -345,7 +345,8 @@ public sealed class IntegrationShipmentQueryService(
                 PlannedStoreArrivalDate = d?.PlannedStoreArrivalDate,
                 StoreArrivalDate = d?.StoreArrivalDate,
                 StorePreAcceptanceDate = storePreAcceptance,
-                StoreAcceptanceDate = storeAcceptance
+                StoreAcceptanceDate = storeAcceptance,
+                RomaniaPermShipmentId = x.Transfer.RomaniaPermShipmentId
             };
         }).ToList();
 

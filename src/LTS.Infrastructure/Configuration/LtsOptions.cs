@@ -16,6 +16,8 @@ public sealed class LtsOptions
     public MailOptions Mail { get; set; } = new();
 
     public DelayAlertOptions DelayAlerts { get; set; } = new();
+
+    public RomaniaOneClickOptions RomaniaOneClick { get; set; } = new();
 }
 
 /// <summary>The first administrator, created on an empty database so someone can log in.</summary>
@@ -120,4 +122,32 @@ public sealed class DelayAlertOptions
     public bool Enabled { get; set; } = true;
 
     public int CheckIntervalSeconds { get; set; } = 60;
+}
+
+/// <summary>
+/// How the Romania KLG OneClick poller behaves - a genuinely third-party, OAuth-style API, unlike
+/// every other integration here. One KLG "domestic shipment" corresponds to one LTS transfer (a
+/// crossdock-to-store leg), matched by <c>RomaniaPermShipmentId</c> typed onto the transfer by
+/// hand (see Transfers.razor) - so this poller looks shipments up one at a time by that id, it
+/// never lists.
+/// </summary>
+public sealed class RomaniaOneClickOptions
+{
+    public bool Enabled { get; set; }
+
+    /// <summary>KLG OneClick's base API URL, e.g. https://api.oneclick.ro/v1.</summary>
+    public string? BaseUrl { get; set; }
+
+    /// <summary>
+    /// Name of the entry under Integration:Secrets carrying the initial, manually-generated access
+    /// token. Kept only for reference - RomaniaTokenStore never reads it at runtime, since it
+    /// bootstraps straight from the refresh key below (see RomaniaTokenStore.GetValidAccessTokenAsync)
+    /// and never trusts an access token whose actual remaining lifetime it cannot verify.
+    /// </summary>
+    public string? ApiKeySecretName { get; set; }
+
+    /// <summary>Name of the entry under Integration:Secrets carrying the initial refresh token.</summary>
+    public string? RefreshKeySecretName { get; set; }
+
+    public int PollSeconds { get; set; } = 3600;
 }

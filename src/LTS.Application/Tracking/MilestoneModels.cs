@@ -22,12 +22,20 @@ public sealed record MilestoneChange(string Reference, MilestoneType Type, DateO
 /// </param>
 /// <param name="IntegrationRunId">The poll that produced these values, for traceability.</param>
 /// <param name="Note">Free text stored on the audit row, e.g. the uploaded file name.</param>
+/// <param name="SkipChronologyValidation">
+/// When true, skips the same-owner "the previous milestone in this chain must already have a
+/// date" check (still enforces the future-date sanity check). For a verified automated source
+/// whose dates must apply independently of whether a human has entered an earlier milestone in
+/// the same owner chain yet - e.g. the Romania KLG feed writing Crossdock Departure/Store Arrival
+/// dates regardless of whether Crossdock Arrival has been typed in. False for every other caller.
+/// </param>
 public sealed record MilestoneApplyOptions(
     MilestoneSource Source,
     bool EnforcePermissions = true,
     bool ManualOverrideWins = false,
     int? IntegrationRunId = null,
-    string? Note = null)
+    string? Note = null,
+    bool SkipChronologyValidation = false)
 {
     public static MilestoneApplyOptions Manual => new(MilestoneSource.Manual);
 }

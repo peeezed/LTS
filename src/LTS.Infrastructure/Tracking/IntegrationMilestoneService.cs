@@ -129,7 +129,7 @@ public sealed class IntegrationMilestoneService(
                     continue;
                 }
 
-                if (change.Date is { } newDate && Validate(newDate, change.Type, t => ShipmentStatusAggregator.GetDate(date, t)) is { } validationError)
+                if (change.Date is { } newDate && Validate(newDate, change.Type, t => ShipmentStatusAggregator.GetDate(date, t), options.SkipChronologyValidation) is { } validationError)
                 {
                     errors.Add(new MilestoneError(change.Reference, change.Type, validationError));
                     continue;
@@ -226,7 +226,7 @@ public sealed class IntegrationMilestoneService(
                     continue;
                 }
 
-                if (change.Date is { } newDate && Validate(newDate, change.Type, Read) is { } validationError)
+                if (change.Date is { } newDate && Validate(newDate, change.Type, Read, options.SkipChronologyValidation) is { } validationError)
                 {
                     errors.Add(new MilestoneError(change.Reference, change.Type, validationError));
                     continue;
@@ -410,14 +410,24 @@ public sealed class IntegrationMilestoneService(
             Note = options.Note
         });
 
-    /// <summary>Rejects a date typed for an event that has not occurred, or one out of order.</summary>
-    private string? Validate(DateOnly date, MilestoneType type, Func<MilestoneType, DateOnly?> read)
+    /// <summary>
+    /// Rejects a date typed for an event that has not occurred, or one out of order. The
+    /// out-of-order (same-owner-chain prerequisite) check is skipped when
+    /// <paramref name="skipChronology"/> is true - see MilestoneApplyOptions.SkipChronologyValidation.
+    /// The future-date sanity check always applies regardless.
+    /// </summary>
+    private string? Validate(DateOnly date, MilestoneType type, Func<MilestoneType, DateOnly?> read, bool skipChronology)
     {
         var definition = MilestoneCatalog.Get(type);
 
         if (!definition.IsPlanned && date > clock.Today.AddDays(FutureToleranceDays))
         {
             return $"'{definition.DisplayName}' cannot be in the future.";
+        }
+
+        if (skipChronology)
+        {
+            return null;
         }
 
         // Each owner enters their own dates in order - the logistics company's own chain

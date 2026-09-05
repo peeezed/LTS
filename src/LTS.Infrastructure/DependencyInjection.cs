@@ -2,6 +2,7 @@
 using LTS.Application.Excel;
 using LTS.Application.Kpi;
 using LTS.Application.Reference;
+using LTS.Application.RomaniaOneClick;
 using LTS.Application.Security;
 using LTS.Application.Tracking;
 using LTS.Application.DelayAlerts;
@@ -12,6 +13,7 @@ using LTS.Infrastructure.ExportAttributeFeed;
 using LTS.Infrastructure.Kpi;
 using LTS.Infrastructure.Persistence;
 using LTS.Infrastructure.Reference;
+using LTS.Infrastructure.RomaniaOneClick;
 using LTS.Infrastructure.Security;
 using LTS.Infrastructure.ShipmentFeed;
 using LTS.Infrastructure.Tracking;
@@ -99,6 +101,11 @@ public static class DependencyInjection
 
         services.AddHttpClient();
 
+        // Encrypts the Romania KLG token pair at rest (RomaniaTokenStore) - LTS_Integration is a
+        // shared database, not app-private, so the live token pair is never written there in
+        // plaintext. Keys default to the local file system, fine for a single app instance.
+        services.AddDataProtection();
+
         // Shipments feed: the company's own internal shipment header source. One shared
         // endpoint, one country loop, config-driven.
         services.AddScoped<IShipmentFeedClient, ShipmentFeedClient>();
@@ -126,6 +133,16 @@ public static class DependencyInjection
         services.AddScoped<IDelayAlertAdminService, DelayAlertAdminService>();
         services.AddScoped<DelayAlertRunner>();
         services.AddHostedService<DelayAlertPoller>();
+
+        // Romania: KLG OneClick, a genuine third-party API with OAuth-style rotating refresh
+        // tokens (unlike every other integration here, which uses a static bearer secret). One
+        // KLG "domestic shipment" is one LTS transfer - looked up individually by the
+        // RomaniaPermShipmentId typed onto it (see Transfers.razor), never listed in bulk.
+        services.AddScoped<IRomaniaTokenStore, RomaniaTokenStore>();
+        services.AddScoped<IRomaniaOneClickClient, RomaniaOneClickClient>();
+        services.AddScoped<IRomaniaTransferLinkService, RomaniaTransferLinkService>();
+        services.AddScoped<RomaniaShipmentFeedRunner>();
+        services.AddHostedService<RomaniaShipmentPoller>();
 
         return services;
     }

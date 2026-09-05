@@ -37,6 +37,7 @@ public class LtsIntegrationDbContext(DbContextOptions<LtsIntegrationDbContext> o
     public DbSet<LtsShipmentFeedStagingRecord> ShipmentFeedStaging => Set<LtsShipmentFeedStagingRecord>();
     public DbSet<LtsIntegrationDelayAlertConfig> DelayAlertConfigs => Set<LtsIntegrationDelayAlertConfig>();
     public DbSet<LtsIntegrationMilestoneAudit> MilestoneAudits => Set<LtsIntegrationMilestoneAudit>();
+    public DbSet<LtsIntegrationRomaniaOneClickToken> RomaniaOneClickTokens => Set<LtsIntegrationRomaniaOneClickToken>();
 
     // The seven shipment attribute lookup tables all share the same Code+Description shape, so
     // one shared-type entity (LtsIntegrationAttribute) is mapped onto each rather than declaring
@@ -212,6 +213,17 @@ public class LtsIntegrationDbContext(DbContextOptions<LtsIntegrationDbContext> o
             entity.Property(a => a.Source).HasConversion<string>().HasMaxLength(30);
         });
 
+        // Single-row table: the current KLG OneClick access/refresh token pair, encrypted at rest
+        // via IDataProtector (see RomaniaTokenStore) since LTS_Integration is a shared database,
+        // not app-private. There is only ever one active row - RomaniaTokenStore replaces it in
+        // place on every refresh rather than appending history.
+        builder.Entity<LtsIntegrationRomaniaOneClickToken>(entity =>
+        {
+            entity.ToTable("LTS_RomaniaOneClickToken");
+            entity.HasKey(t => t.Id);
+            entity.Property(t => t.Id).HasColumnName("ID");
+        });
+
         foreach (var (name, table) in new[]
         {
             ("ArrivalCustomsAttribute", "LTS_ArrivalCustoms"),
@@ -359,6 +371,13 @@ public class LtsIntegrationShipmentTransfer
     public required string Performance { get; set; }
     public int? TotalBoxes { get; set; }
     public int? TotalItems { get; set; }
+
+    /// <summary>
+    /// KLG OneClick's "perm_shipment_id" for this transfer - one KLG domestic shipment maps to one
+    /// LTS transfer, not a whole LTS shipment. Romania-only; typed in by hand on Transfers.razor.
+    /// Null for every non-Romania transfer, and for a Romania one not yet linked.
+    /// </summary>
+    public string? RomaniaPermShipmentId { get; set; }
 }
 
 /// <summary>
@@ -478,4 +497,22 @@ public class LtsIntegrationMilestoneAudit
     public int? PartnerId { get; set; }
     public DateTime ChangedAt { get; set; }
     public string? Note { get; set; }
+}
+
+/// <summary>
+/// One row of LTS_RomaniaOneClickToken: the current KLG access/refresh token pair, encrypted at
+/// rest (see RomaniaTokenStore). Single-row table - RefreshAsync overwrites the same row every
+/// time rather than appending a history, since only the most recent pair is ever valid (KLG
+/// invalidates the previous pair on every refresh). RefreshTokenExpiresAtUtc is informational only
+/// (KLG's refresh response never returns a refresh-token lifetime, only the access token's
+/// expires_in) - computed from the documented fixed 30-day rotation window, not a live value.
+/// </summary>
+public class LtsIntegrationRomaniaOneClickToken
+{
+    public int Id { get; set; }
+    public required string EncryptedAccessToken { get; set; }
+    public required string EncryptedRefreshToken { get; set; }
+    public DateTime AccessTokenExpiresAtUtc { get; set; }
+    public DateTime RefreshTokenExpiresAtUtc { get; set; }
+    public DateTime UpdatedAtUtc { get; set; }
 }
